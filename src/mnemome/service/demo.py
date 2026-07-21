@@ -324,6 +324,7 @@ async def _run_lotte_agent(
     cultural_artifacts: tuple[Any, ...] = (),
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
+    stream_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
     try:
         from lotte_agent import AsyncToolCallingAgent
@@ -459,6 +460,38 @@ async def _run_lotte_agent(
                     tracking_workflow=True,
                     return_trimmed_stream=False,
                 ):
+                    if stream_progress is not None and chunk.type == "plan":
+                        plan_payload = chunk.plan if isinstance(chunk.plan, dict) else {}
+                        raw_steps = plan_payload.get("steps", [])
+                        safe_steps = [
+                            {
+                                "index": step.get("index"),
+                                "title": str(step.get("text") or "")[:240],
+                                "tool": str(step.get("tool") or "")[:80],
+                            }
+                            for step in raw_steps
+                            if isinstance(step, dict) and str(step.get("text") or "").strip()
+                        ]
+                        if safe_steps:
+                            await stream_progress(
+                                {
+                                    "kind": "plan",
+                                    "replan": bool(plan_payload.get("replan")),
+                                    "steps": safe_steps,
+                                }
+                            )
+                    elif (
+                        stream_progress is not None
+                        and chunk.type == "step_start"
+                        and chunk.title
+                    ):
+                        await stream_progress(
+                            {
+                                "kind": "step_start",
+                                "index": chunk.index,
+                                "title": str(chunk.title)[:240],
+                            }
+                        )
                     delta = chunk.delta_text if chunk.type == "text" else ""
                     if not delta or not chunk.is_last_step:
                         continue
@@ -511,6 +544,7 @@ async def _execute_demo_chat(
     query: str,
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
+    stream_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     await _seed_memories(application, tenant_id)
     await _seed_cultural_memory(application, tenant_id)
@@ -543,6 +577,7 @@ async def _execute_demo_chat(
             run.run_id,
             context.cultural_artifacts,
             stream_delta=stream_delta,
+            stream_progress=stream_progress,
         )
         completed = await application.complete_run(
             tenant_id,
@@ -773,6 +808,9 @@ def build_demo_router() -> APIRouter:
         async def emit_delta(delta: str) -> None:
             await queue.put(("delta", {"delta": delta}))
 
+        async def emit_progress(progress: dict[str, Any]) -> None:
+            await queue.put(("progress", progress))
+
         async def produce() -> None:
             try:
                 result = await _execute_demo_chat(
@@ -780,6 +818,7 @@ def build_demo_router() -> APIRouter:
                     tenant_id,
                     body.query,
                     stream_delta=emit_delta,
+                    stream_progress=emit_progress,
                 )
                 await queue.put(("complete", result))
             except asyncio.CancelledError:

@@ -132,7 +132,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-cultural-memory" in page.text
+            assert "20260721-plan-progress-mobile-sidebar" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -147,6 +147,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'addEventListener("compositionstart"' in script.text
             assert 'addEventListener("compositionend"' in script.text
             assert "event.isComposing" in script.text
+            assert 'event === "progress"' in script.text
+            assert 'matchMedia("(max-width: 900px)")' in script.text
 
             documents = await client.get("/documents")
             assert documents.status_code == 200
@@ -175,8 +177,20 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert streamed.status_code == 200
             assert streamed.headers["content-type"].startswith("text/event-stream")
             assert "event: ready" in streamed.text
+            assert "event: progress" in streamed.text
             assert "event: delta" in streamed.text
             assert "event: complete" in streamed.text
+            progress_line = next(
+                line
+                for block in streamed.text.split("\n\n")
+                if block.startswith("event: progress")
+                for line in block.splitlines()
+                if line.startswith("data: ")
+            )
+            progress_payload = json.loads(progress_line.removeprefix("data: "))
+            assert progress_payload["kind"] == "plan"
+            assert progress_payload["steps"]
+            assert progress_payload["steps"][0]["title"]
             complete_line = next(
                 line
                 for block in streamed.text.split("\n\n")

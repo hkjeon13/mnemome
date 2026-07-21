@@ -376,6 +376,28 @@ function renderAnswerLinks(element, text) {
   element.append(document.createTextNode(text.slice(cursor)));
 }
 
+function renderPlanProgress(element, steps, activeStep) {
+  element.replaceChildren();
+  element.className = "plan-progress";
+  const heading = document.createElement("strong");
+  heading.textContent = "진행 계획";
+  const list = document.createElement("ol");
+  for (const step of steps) {
+    const item = document.createElement("li");
+    const isActive =
+      (activeStep.index !== null && String(step.index) === String(activeStep.index)) ||
+      (activeStep.title && step.title === activeStep.title);
+    item.classList.toggle("active", Boolean(isActive));
+    const marker = document.createElement("span");
+    marker.textContent = isActive ? "진행 중" : "예정";
+    const title = document.createElement("span");
+    title.textContent = step.title;
+    item.append(marker, title);
+    list.append(item);
+  }
+  element.append(heading, list);
+}
+
 function compactMs(value) {
   if (value === null || value === undefined) return "";
   return `${Number(value).toLocaleString("ko-KR")} ms`;
@@ -516,11 +538,13 @@ async function sendChat(query) {
   setChatBusy(true);
   elements.starterPrompts.hidden = true;
   appendMessage("user", query.trim());
-  const responseMessage = appendMessage("assistant", "관련 기억을 확인하고 있습니다…");
+  const responseMessage = appendMessage("assistant", "실행 계획을 만들고 있습니다…");
   const responseText = responseMessage.querySelector("p");
   responseMessage.classList.add("typing");
   let receivedDelta = false;
   let result = null;
+  let plannedSteps = [];
+  let activeStep = { index: null, title: "" };
   try {
     await streamApi(
       "/demo/api/chat/stream",
@@ -530,10 +554,22 @@ async function sendChat(query) {
         signal: controller.signal,
       },
       (event, payload) => {
-        if (event === "delta") {
+        if (event === "progress") {
+          if (payload.kind === "plan" && Array.isArray(payload.steps)) {
+            plannedSteps = payload.steps;
+            activeStep = { index: null, title: "" };
+            responseMessage.classList.remove("typing");
+            renderPlanProgress(responseText, plannedSteps, activeStep);
+          } else if (payload.kind === "step_start" && plannedSteps.length) {
+            activeStep = { index: payload.index ?? null, title: payload.title || "" };
+            renderPlanProgress(responseText, plannedSteps, activeStep);
+          }
+          elements.conversation.scrollTop = elements.conversation.scrollHeight;
+        } else if (event === "delta") {
           if (!receivedDelta) {
             receivedDelta = true;
             responseText.textContent = "";
+            responseText.className = "";
             responseMessage.classList.remove("typing");
           }
           responseText.textContent += payload.delta || "";
@@ -681,6 +717,9 @@ elements.starterPrompts.addEventListener("click", (event) => {
 });
 
 async function initialize() {
+  if (window.matchMedia("(max-width: 900px)").matches) {
+    setMemoryPanelCollapsed(true);
+  }
   try {
     await Promise.all([loadMemories(), loadCulturalMemory()]);
   } catch (error) {
