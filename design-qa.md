@@ -101,4 +101,10 @@
 - Source evidence: user annotations identified the runtime class and truncated run ID as implementation details that added noise below each answer.
 - Fix: removed `AsyncToolCallingAgent` and the run ID from answer metadata while retaining recall count and elapsed time; full execution detail remains available in the trace sidebar.
 
+**New conversation flow**
+
+- Goal: make long-term-memory recall easy to compare across visibly separate conversations.
+- Interaction: the sidebar refresh control opens a confirmation dialog explaining that chat and trace state reset while saved long-term memories remain available.
+- Confirmed behavior: confirmation restores the welcome prompt, hides and clears the previous execution trace, returns the sidebar to memory view, and preserves every saved memory card.
+
 final result: passed

@@ -16,7 +16,9 @@ const elements = {
   memoryView: document.querySelector("#memory-view"),
   traceTab: document.querySelector("#trace-view-tab"),
   memoryDialog: document.querySelector("#memory-dialog"),
+  newConversationDialog: document.querySelector("#new-conversation-dialog"),
   openMemoryForm: document.querySelector("#open-memory-form"),
+  openNewConversation: document.querySelector("#open-new-conversation"),
   clearSessionMemories: document.querySelector("#clear-session-memories"),
   toggleMemoryPanel: document.querySelector("#toggle-memory-panel"),
   memoryPanel: document.querySelector(".memory-panel"),
@@ -37,6 +39,8 @@ const elements = {
   memoryRoutes: document.querySelector("#memory-routes"),
   toast: document.querySelector("#toast"),
 };
+
+const initialGuideMessage = elements.conversation.querySelector(".assistant-message");
 
 const kindLabels = {
   fact: "FACT · 사실",
@@ -388,6 +392,32 @@ function stopChat() {
   state.abortController.abort();
 }
 
+function traceEmpty(message) {
+  const empty = document.createElement("div");
+  empty.className = "trace-empty";
+  empty.textContent = message;
+  return empty;
+}
+
+function startNewConversation() {
+  stopChat();
+  for (const child of [...elements.conversation.children]) {
+    if (child !== initialGuideMessage && child !== elements.starterPrompts) child.remove();
+  }
+  elements.starterPrompts.hidden = false;
+  elements.conversation.scrollTop = 0;
+  elements.chatInput.value = "";
+  elements.traceRunId.textContent = "실행 대기 중";
+  elements.traceSummary.textContent = "아직 실행 기록이 없습니다";
+  elements.executionSteps.replaceChildren(traceEmpty("질문을 보내면 실제 plan 제목과 중간 step이 표시됩니다."));
+  elements.memoryRoutes.replaceChildren(traceEmpty("실행 후 각 메모리 계층의 적용 여부와 범위를 표시합니다."));
+  elements.traceSection.classList.remove("has-run");
+  elements.traceTab.hidden = true;
+  showSidebarView("memory");
+  showToast("새 대화를 시작했습니다. 저장된 메모리는 유지됩니다.");
+  elements.chatInput.focus({ preventScroll: true });
+}
+
 async function sendChat(query) {
   if (state.busy || !query.trim()) return;
   const controller = new AbortController();
@@ -459,6 +489,11 @@ elements.filterTabs.addEventListener("click", (event) => {
 });
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
+elements.openNewConversation.addEventListener("click", () => elements.newConversationDialog.showModal());
+elements.newConversationDialog.addEventListener("close", () => {
+  if (elements.newConversationDialog.returnValue === "confirm") startNewConversation();
+  elements.newConversationDialog.returnValue = "";
+});
 elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
 function showSidebarView(view) {
   const traceActive = view === "trace" && !elements.traceTab.hidden;
