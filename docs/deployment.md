@@ -47,6 +47,13 @@ The bulk-clear demo endpoint suppresses only non-seeded memories belonging to
 the current cookie-scoped tenant. Seed memories and other sessions are never
 targets of that operation.
 
+Long-term recall runs BM25 in the shared Core package. The image installs PeCab
+as the MeCab-compatible Korean tokenizer fallback and preloads NLTK's English
+tokenizer and part-of-speech resources. A system `konlpy.tag.Mecab` installation
+is preferred when one is available. The demo's cookie-scoped memory set is
+bounded, so scoring remains an in-process full scan without a separate search
+service or persisted index.
+
 Set `MNEMOME_MCP_URL` to a streamable-HTTP MCP endpoint to bridge remote tools
 into Lotte Agent. `MNEMOME_MCP_TOOL_ALLOWLIST` is a comma-separated server-side
 allowlist; the shipped public-demo default includes read-oriented search,

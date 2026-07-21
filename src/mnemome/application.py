@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import replace
 from typing import Any
 
@@ -24,15 +23,9 @@ from .contracts import (
 from .errors import ConflictError, NotFoundError, ValidationError
 from .ids import SortableIdGenerator
 from .ports import IdGenerator, Stores
+from .retrieval import bm25_scores
 
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
-_TOKEN_PATTERN = re.compile(r"[\w가-힣]+", re.UNICODE)
-
-
-def _tokens(text: str) -> set[str]:
-    return {token.casefold() for token in _TOKEN_PATTERN.findall(text) if len(token) > 1}
-
-
 class MnemomeApplication:
     """Transport-independent use cases shared by embedded and service profiles."""
 
@@ -378,15 +371,19 @@ class MnemomeApplication:
     ) -> tuple[RecalledFact, ...]:
         if limit < 1 or limit > 100:
             raise ValidationError("Recall limit must be between 1 and 100")
-        query_tokens = _tokens(query)
+        active_facts = [
+            fact
+            for fact in await self.stores.list_facts(tenant_id)
+            if fact.status == FactStatus.ACTIVE
+        ]
+        scores = bm25_scores(
+            query,
+            [(fact.fact_id, fact.statement, fact.confidence) for fact in active_facts],
+        )
         ranked: list[RecalledFact] = []
-        for fact in await self.stores.list_facts(tenant_id):
-            if fact.status != FactStatus.ACTIVE:
-                continue
-            fact_tokens = _tokens(fact.statement)
-            lexical = len(query_tokens & fact_tokens) / max(len(query_tokens), 1)
-            score = round((0.85 * lexical) + (0.15 * fact.confidence), 6)
-            if query_tokens and lexical == 0:
+        for fact in active_facts:
+            score = scores.get(fact.fact_id)
+            if score is None:
                 continue
             ranked.append(
                 RecalledFact(

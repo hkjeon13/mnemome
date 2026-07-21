@@ -113,3 +113,34 @@ async def test_memory_kind_tags_and_metadata_are_preserved() -> None:
     assert listed == (fact,)
     assert listed[0].tags == ("korean", "language")
     assert listed[0].metadata == {"priority": "high"}
+
+
+@pytest.mark.asyncio
+async def test_bm25_recall_normalizes_korean_particles() -> None:
+    memory = Mnemome.in_memory()
+    await memory.initialize()
+    article = await memory.application.create_fact(
+        "tenant-a",
+        (
+            "엔비디아의 독주에 제동을 건 AMD와 삼성전자, SK하이닉스가 "
+            "고대역폭메모리의 큰손으로 부상했다는 소식입니다. "
+            "이들은 엔비디아와 경쟁하고 있습니다."
+        ),
+        sources=(SourceRef("test", "nvidia-article"),),
+        kind="conversation",
+    )
+    await memory.application.create_fact(
+        "tenant-a",
+        "Mnemome 데모는 Docker Compose로 배포됩니다.",
+        sources=(SourceRef("test", "deployment"),),
+        kind="fact",
+    )
+
+    recalled = await memory.application.recall(
+        "tenant-a",
+        "이전에 엔비디아 관련 기사에 대해서 답변한 내용 기억해?",
+    )
+
+    assert recalled
+    assert recalled[0].fact_id == article.fact_id
+    assert recalled[0].score > 0

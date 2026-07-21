@@ -14,6 +14,7 @@ COPY vendor ./vendor
 ARG REQUIRE_LOTTE_AGENT=0
 RUN python -m pip install --upgrade pip \
     && python -m pip install ".[service]" \
+    && python -m nltk.downloader -d /usr/local/share/nltk_data punkt_tab averaged_perceptron_tagger_eng \
     && lotte_wheel="$(find ./vendor -maxdepth 1 -name 'lotte_agent-*.whl' -print -quit)" \
     && if [ -n "$lotte_wheel" ]; then python -m pip install "$lotte_wheel"; \
        elif [ "$REQUIRE_LOTTE_AGENT" = "1" ]; then echo "Lotte Agent wheel is required" >&2; exit 1; fi

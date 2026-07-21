@@ -78,6 +78,10 @@ search or suppress them, and ask a Lotte Agent runtime to use recalled memories.
 Successful Agent output is stored back as a conversation memory.
 Persistent instructions expressed with markers such as `앞으로` or `항상` are
 also promoted to preference memories and injected into every later run.
+Recall uses BM25 over MeCab-compatible Korean noun tokens (system MeCab when
+available, otherwise PeCab) and NLTK English noun tokens. Tokenization is
+cached, and the same transport-independent implementation serves both the
+embedded library and HTTP service profiles.
 The memory vault marks the three built-in samples as protected. A browser can
 clear every user-created and Agent-generated memory in its own isolated demo
 tenant without affecting those samples or any other browser session.
@@ -89,7 +93,8 @@ and per-session request limits plus a bounded output budget protect live calls.
 The UI renders a sanitized Lotte Agent workflow trace with real plan titles,
 step states, model-call counts, and latency. It also distinguishes persistent
 long-term recall, run-scoped short-term context, and the currently unconfigured
-cultural-memory provider.
+cultural-memory provider, and identifies the retriever used for long-term
+memory.
 
 When `MNEMOME_MCP_URL` is configured, the demo connects Lotte Agent to the
 remote streamable-HTTP MCP server inside the API process. The public profile

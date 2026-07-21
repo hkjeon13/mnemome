@@ -271,7 +271,10 @@ function renderAgentTrace(result) {
     const detail = document.createElement("p");
     detail.textContent = route.detail;
     const extra = document.createElement("span");
-    if (code === "LTM") extra.textContent = `${route.count}개 회상 · ${(route.kinds || []).join(" · ") || "관련 기억 없음"}`;
+    if (code === "LTM") {
+      const kinds = (route.kinds || []).join(" · ") || "관련 기억 없음";
+      extra.textContent = `${route.count}개 회상 · ${kinds}${route.retriever ? ` · ${route.retriever}` : ""}`;
+    }
     else if (code === "STM") extra.textContent = `${route.count}개 문맥 · 현재 run 한정`;
     else extra.textContent = route.status === "applied" ? route.snapshot_id : "미적용 · provider 없음";
     copy.append(heading, detail, extra);

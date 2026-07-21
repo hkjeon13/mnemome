@@ -127,6 +127,9 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["execution_trace"]["plan"]["step_count"] >= 1
             assert payload["execution_trace"]["steps"][0]["title"]
             assert payload["memory_trace"]["long_term"]["status"] == "applied"
+            assert payload["memory_trace"]["long_term"]["retriever"] == (
+                "BM25 · MeCab/PeCab + NLTK"
+            )
             assert payload["memory_trace"]["short_term"]["status"] == "applied"
             assert payload["memory_trace"]["cultural"]["status"] == "not_configured"
             assert payload["preference_captured"] is False

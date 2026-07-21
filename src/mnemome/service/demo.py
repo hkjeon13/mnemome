@@ -521,7 +521,11 @@ def build_demo_router() -> APIRouter:
                     "status": "applied" if recalled else "empty",
                     "count": len(recalled),
                     "label": "Mnemome 장기 기억",
-                    "detail": "질문과 관련된 영속 기억을 조회해 Agent 입력에 적용했습니다.",
+                    "detail": (
+                        "BM25와 MeCab/PeCab + NLTK 토큰화를 사용해 관련 영속 기억을 "
+                        "조회하고 Agent 입력에 적용했습니다."
+                    ),
+                    "retriever": "BM25 · MeCab/PeCab + NLTK",
                     "kinds": sorted({entry.kind.value for entry in recalled}),
                 },
                 "short_term": {
