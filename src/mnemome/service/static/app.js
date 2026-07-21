@@ -224,9 +224,17 @@ function renderAgentTrace(result) {
   const trace = result.execution_trace || {};
   const plan = trace.plan || {};
   const steps = Array.isArray(trace.steps) ? trace.steps : [];
+  const mcp = result.mcp || {};
   elements.traceRunId.textContent = result.run_id;
-  elements.traceSummary.textContent = `${steps.length} steps · ${trace.llm_calls || 0} LLM calls · ${compactMs(trace.total_latency_ms || result.elapsed_ms)}`;
+  const mcpSummary = mcp.status === "connected" ? ` · ${mcp.tool_count} MCP tools` : " · MCP unavailable";
+  elements.traceSummary.textContent = `${steps.length} steps · ${trace.llm_calls || 0} LLM calls${mcpSummary} · ${compactMs(trace.total_latency_ms || result.elapsed_ms)}`;
   elements.executionSteps.replaceChildren();
+  renderExecutionStep(
+    "MCP",
+    "내부 도구 브리지",
+    mcp.status === "connected" ? `${mcp.tool_count}개 안전 도구 연결` : "메모리 전용 fallback",
+    mcp.status === "connected" ? "ok" : mcp.status || "unavailable",
+  );
   renderExecutionStep(
     "PLAN",
     plan.title || "Direct response",
@@ -354,7 +362,7 @@ async function initialize() {
   try {
     const status = await api("/demo/api/status");
     elements.runtimeStatus.classList.add("ready");
-    elements.runtimeLabel.textContent = `${status.runtime} · ${status.model || "모델 미설정"}`;
+    elements.runtimeLabel.textContent = `${status.runtime} · ${status.model || "모델 미설정"}${status.mcp_configured ? " · MCP" : ""}`;
     await loadMemories();
   } catch (error) {
     elements.runtimeLabel.textContent = "연결 실패";

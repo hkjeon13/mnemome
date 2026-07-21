@@ -91,6 +91,12 @@ step states, model-call counts, and latency. It also distinguishes persistent
 long-term recall, run-scoped short-term context, and the currently unconfigured
 cultural-memory provider.
 
+When `MNEMOME_MCP_URL` is configured, the demo connects Lotte Agent to the
+remote streamable-HTTP MCP server inside the API process. The public profile
+uses an explicit read-oriented allowlist for web/news retrieval, company and
+market data, analysis, and sandboxed calculation. Document mutation, artifact
+creation, and browser-control tools are not exposed to public demo users.
+
 ## Development
 
 ```bash

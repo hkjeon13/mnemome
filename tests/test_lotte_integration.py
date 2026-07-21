@@ -5,6 +5,7 @@ import pytest
 from lotte_agent.memory import MemoryEntry, MemoryEntryKind
 from lotte_agent.models.base import AsyncModelBase
 from lotte_agent.models.model_types import ModelOutput
+from lotte_agent.tools import ToolSpec
 
 from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
@@ -61,9 +62,28 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             return iterator()
 
     import lotte_agent.models
+    import lotte_agent.tools
+
+    async def fake_tool(**kwargs):
+        return kwargs
+
+    class FakeMcpClient:
+        def __init__(self, url: str) -> None:
+            assert url == "https://assistant.fin-ally.net/mcp"
+
+        async def __aenter__(self):
+            return [
+                ToolSpec(name="search_retrieve", fn=fake_tool, description="Search"),
+                ToolSpec(name="local_knowledge", fn=fake_tool, description="Unsafe write tool"),
+            ]
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-live-test")
+    monkeypatch.setenv("MNEMOME_MCP_URL", "https://assistant.fin-ally.net/mcp")
+    monkeypatch.setattr(lotte_agent.tools, "McpToolSpecClient", FakeMcpClient)
     monkeypatch.setattr(
         lotte_agent.models,
         "AsyncOpenAIClient",
@@ -92,6 +112,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert status.json()["runtime"] == "lotte-agent 0.0.11"
             assert status.json()["runtime_available"] is True
             assert status.json()["model"] == "gpt-live-test"
+            assert status.json()["mcp_configured"] is True
             assert status.json()["memory_count"] == 3
 
             response = await client.post(
@@ -109,6 +130,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["memory_trace"]["short_term"]["status"] == "applied"
             assert payload["memory_trace"]["cultural"]["status"] == "not_configured"
             assert payload["preference_captured"] is False
+            assert payload["mcp"] == {
+                "status": "connected",
+                "tool_count": 1,
+                "tools": ["search_retrieve"],
+            }
             assert any("[Mnemome 장기 기억]" in messages for messages in seen_messages)
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 

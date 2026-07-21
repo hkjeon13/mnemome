@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 from collections import OrderedDict, deque
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,15 @@ DEMO_TENANT_PREFIX = "demo_"
 DEMO_SESSION_LENGTH = 32
 STATIC_DIR = Path(__file__).with_name("static")
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_MCP_TOOLS = (
+    "sandbox_python_execute",
+    "search_retrieve",
+    "search_detail",
+    "company_search",
+    "stock_price",
+    "market_data",
+    "company_analysis",
+)
 
 
 class DemoMemoryBody(BaseModel):
@@ -187,16 +197,24 @@ def _looks_like_preference_instruction(text: str) -> bool:
     )
 
 
+def _mcp_settings() -> tuple[str, set[str]]:
+    url = os.getenv("MNEMOME_MCP_URL", "").strip()
+    configured = os.getenv("MNEMOME_MCP_TOOL_ALLOWLIST", "").strip()
+    allowed = {name.strip() for name in configured.split(",") if name.strip()}
+    return url, allowed or set(DEFAULT_MCP_TOOLS)
+
+
 async def _run_lotte_agent(
     application: Any,
     tenant_id: str,
     query: str,
     run_id: str,
-) -> tuple[str, list[Any], float, str, dict[str, Any], bool]:
+) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
     try:
         from lotte_agent import AsyncToolCallingAgent
         from lotte_agent.memory import MemoryEntry, MemoryEntryKind
         from lotte_agent.models import AsyncOpenAIClient
+        from lotte_agent.tools import McpToolSpecClient
 
         from ..integrations.lotte_agent import MnemomeLongTermMemory
     except ImportError as error:
@@ -262,40 +280,62 @@ async def _run_lotte_agent(
 
     started = time.perf_counter()
     workflow_payload: dict[str, Any] | None = None
-    async with AsyncToolCallingAgent(
-        model=live_model,
-        tools={},
-        name="Mnemome Memory Guide",
-        description=(
-            "Mnemome 장기 기억을 실제로 검색해 답하는 한국어 Agent. "
-            "주어진 long_term_memory를 우선 근거로 사용하고, 기억에 없는 사실을 지어내지 않는다."
-        ),
-        long_term_memory=memory,
-        memory_search_top_k=5,
-        memory_store_outputs=True,
-        deterministic_trajectory=True,
-        max_replans=0,
-        num_steps=2,
-        debug_verbosity="none",
-        workflow_cache_dir="/tmp/mnemome-workflows",
-        tracking_workflow_detail="preview",
-    ) as agent:
-        result = await asyncio.wait_for(
-            agent.run(
-                agent_task,
-                run_id=run_id,
-                metadata={"language": "ko"},
-                tracking_workflow=True,
-            ),
-            timeout=45,
-        )
-        workflow_payload = agent.get_workflow_payload(run_id)
-        artifact_path = agent.get_workflow_artifact_path(run_id)
-        if artifact_path:
+    mcp_url, allowed_tools = _mcp_settings()
+    mcp_status: dict[str, Any] = {
+        "status": "not_configured" if not mcp_url else "unavailable",
+        "tool_count": 0,
+        "tools": [],
+    }
+    async with AsyncExitStack() as stack:
+        agent_tools: list[Any] = []
+        if mcp_url:
             try:
-                Path(artifact_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+                async with asyncio.timeout(12):
+                    discovered = await stack.enter_async_context(McpToolSpecClient(mcp_url))
+                agent_tools = [tool for tool in discovered if tool.name in allowed_tools]
+                mcp_status = {
+                    "status": "connected",
+                    "tool_count": len(agent_tools),
+                    "tools": sorted(tool.name for tool in agent_tools),
+                }
+            except Exception:
+                mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
+
+        async with AsyncToolCallingAgent(
+            model=live_model,
+            tools=agent_tools,
+            name="Mnemome Memory Guide",
+            description=(
+                "Mnemome 장기 기억을 실제로 검색해 답하는 한국어 Agent. "
+                "주어진 long_term_memory를 우선 근거로 사용하고, 최신 정보가 필요하면 "
+                "허용된 MCP 검색 도구를 사용하며, 기억에 없는 사실을 지어내지 않는다."
+            ),
+            long_term_memory=memory,
+            memory_search_top_k=5,
+            memory_store_outputs=True,
+            deterministic_trajectory=True,
+            max_replans=0,
+            num_steps=2,
+            debug_verbosity="none",
+            workflow_cache_dir="/tmp/mnemome-workflows",
+            tracking_workflow_detail="preview",
+        ) as agent:
+            result = await asyncio.wait_for(
+                agent.run(
+                    agent_task,
+                    run_id=run_id,
+                    metadata={"language": "ko"},
+                    tracking_workflow=True,
+                ),
+                timeout=45,
+            )
+            workflow_payload = agent.get_workflow_payload(run_id)
+            artifact_path = agent.get_workflow_artifact_path(run_id)
+            if artifact_path:
+                try:
+                    Path(artifact_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
     return (
         result.text,
@@ -304,6 +344,7 @@ async def _run_lotte_agent(
         model_name,
         _workflow_trace(workflow_payload),
         captured_preference,
+        mcp_status,
     )
 
 
@@ -342,6 +383,7 @@ def build_demo_router() -> APIRouter:
             "model": model,
             "storage": "mnemome-sqlite",
             "memory_count": len(memories),
+            "mcp_configured": bool(_mcp_settings()[0]),
         }
 
     @router.get("/demo/api/memories")
@@ -446,6 +488,7 @@ def build_demo_router() -> APIRouter:
                 model_name,
                 execution_trace,
                 preference_captured,
+                mcp_status,
             ) = await _run_lotte_agent(application, tenant_id, body.query, run.run_id)
             completed = await application.complete_run(
                 tenant_id,
@@ -468,6 +511,7 @@ def build_demo_router() -> APIRouter:
             "elapsed_ms": elapsed_ms,
             "execution_trace": execution_trace,
             "preference_captured": preference_captured,
+            "mcp": mcp_status,
             "memory_trace": {
                 "long_term": {
                     "status": "applied" if recalled else "empty",

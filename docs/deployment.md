@@ -47,6 +47,13 @@ The bulk-clear demo endpoint suppresses only non-seeded memories belonging to
 the current cookie-scoped tenant. Seed memories and other sessions are never
 targets of that operation.
 
+Set `MNEMOME_MCP_URL` to a streamable-HTTP MCP endpoint to bridge remote tools
+into Lotte Agent. `MNEMOME_MCP_TOOL_ALLOWLIST` is a comma-separated server-side
+allowlist; the shipped public-demo default includes read-oriented search,
+company, finance, analysis, and sandboxed-calculation tools only. If MCP is
+temporarily unavailable, the request continues in memory-only mode and reports
+the fallback in its execution trace.
+
 ## Upgrade and rollback
 
 ```bash
