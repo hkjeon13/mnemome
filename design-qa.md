@@ -152,4 +152,22 @@
 - Console errors checked: no warning or error entries were observed on the local rendered page.
 - Remaining P0/P1/P2 findings: none.
 
+**Composer size, radius, and hint-centering iteration**
+
+- Source visual truth: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-qa/source.png`, captured from the deployed Playground before this scoped change.
+- Implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-qa/local-final.png`.
+- Focused comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-qa/composer-focused-final.png`.
+- Viewport: 1849 × 1232 CSS pixels.
+- State: initial Playground, seeded memories loaded, memory panel expanded, chat composer empty.
+- Earlier P2 findings: the composer measured 68px high with a 22px radius, and its placeholder sat too close to the textarea's top edge instead of the input's vertical center.
+- Fixes made: set the composer to an explicit 64px height and 50px radius. Kept the outer padding symmetric at 10px so the textarea and send button remain centered, then sized the textarea to 42px with 10.5px vertical padding around its 21px line box.
+- Post-fix metric evidence: composer height is 64px, radius is 50px, and the textarea, placeholder line box, composer, and send-button centers share the same vertical coordinate.
+- Typography: font family, weight, size, line height, hierarchy, and copy remain unchanged.
+- Spacing and responsive scope: the update is confined to the existing composer rules; its width, bottom placement, desktop layout, and responsive containers remain unchanged.
+- Colors and visual tokens: no color, border color, shadow, or interaction-state token changed.
+- Image quality and assets: no assets were added, removed, resized, or substituted.
+- Primary interaction tested: the textarea accepted text, retained the expected value, and cleared correctly; the empty placeholder returned to the vertically centered position.
+- Console errors checked: no warning or error entries were observed on the local rendered page.
+- Remaining P0/P1/P2 findings: none.
+
 final result: passed
