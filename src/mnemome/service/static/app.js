@@ -14,6 +14,9 @@ const elements = {
   memoryDialog: document.querySelector("#memory-dialog"),
   openMemoryForm: document.querySelector("#open-memory-form"),
   clearSessionMemories: document.querySelector("#clear-session-memories"),
+  toggleMemoryPanel: document.querySelector("#toggle-memory-panel"),
+  memoryPanel: document.querySelector(".memory-panel"),
+  workspace: document.querySelector(".workspace"),
   memoryForm: document.querySelector("#memory-form"),
   memoryKind: document.querySelector("#memory-kind"),
   memoryContent: document.querySelector("#memory-content"),
@@ -418,6 +421,13 @@ elements.filterTabs.addEventListener("click", (event) => {
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
 elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
+elements.toggleMemoryPanel.addEventListener("click", () => {
+  const collapsed = elements.memoryPanel.classList.toggle("is-collapsed");
+  elements.workspace.classList.toggle("memory-collapsed", collapsed);
+  elements.toggleMemoryPanel.textContent = collapsed ? "열기" : "접기";
+  elements.toggleMemoryPanel.setAttribute("aria-expanded", String(!collapsed));
+  elements.toggleMemoryPanel.setAttribute("aria-label", collapsed ? "메모리 패널 열기" : "메모리 패널 접기");
+});
 elements.memoryForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
