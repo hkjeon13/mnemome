@@ -128,7 +128,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'id="trace-view-tab"' in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-full-header-line" in page.text
+            assert "20260721-conversation-replay" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-rotate-ccw" in page.text
@@ -205,6 +205,15 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert memories.json()["clearable_count"] >= 3
             kinds = [item["kind"] for item in memories.json()["items"]]
             assert "conversation" in kinds
+            conversations = [
+                item for item in memories.json()["items"] if item["kind"] == "conversation"
+            ]
+            assert all(item["conversation"]["query"] for item in conversations)
+            assert all(item["conversation"]["answer"] == item["content"] for item in conversations)
+            assert any(
+                item["conversation"]["query"] == "한국어로 간결하게 답변해줘"
+                for item in conversations
+            )
             preferences = [
                 item for item in memories.json()["items"] if item["kind"] == "preference"
             ]

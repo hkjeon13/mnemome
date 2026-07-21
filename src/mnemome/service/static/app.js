@@ -4,6 +4,7 @@ const state = {
   query: "",
   busy: false,
   clearableCount: 0,
+  selectedMemoryId: null,
   abortController: null,
 };
 
@@ -130,8 +131,23 @@ function renderMemories() {
 
   for (const memory of filtered) {
     const card = document.createElement("article");
-    card.className = `memory-card${memory.is_seed ? " seeded" : ""}`;
+    const selected = memory.id === state.selectedMemoryId;
+    card.className = `memory-card${memory.is_seed ? " seeded" : ""}${selected ? " selected" : ""}`;
     card.dataset.memoryId = memory.id;
+
+    if (memory.kind === "conversation") {
+      card.classList.add("conversation-memory");
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-pressed", String(selected));
+      card.setAttribute("aria-label", `과거 대화 열기: ${memory.content}`);
+      card.addEventListener("click", () => openConversationMemory(memory));
+      card.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openConversationMemory(memory);
+      });
+    }
 
     const type = document.createElement("span");
     type.className = `memory-type ${memory.kind}`;
@@ -162,7 +178,10 @@ function renderMemories() {
       remove.title = "기억 비활성화";
       remove.setAttribute("aria-label", "기억 비활성화");
       remove.textContent = "×";
-      remove.addEventListener("click", () => deleteMemory(memory.id));
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteMemory(memory.id);
+      });
       card.append(type, content, tags, remove);
     }
     elements.memoryList.append(card);
@@ -250,6 +269,30 @@ function appendMessageMeta(message, meta) {
     metadata.append(chip);
   }
   body.append(metadata);
+}
+
+function clearRenderedConversation() {
+  for (const child of [...elements.conversation.children]) {
+    if (child !== initialGuideMessage && child !== elements.starterPrompts) child.remove();
+  }
+}
+
+function openConversationMemory(memory) {
+  if (memory.kind !== "conversation") return;
+  stopChat();
+  clearRenderedConversation();
+  initialGuideMessage.hidden = true;
+  elements.starterPrompts.hidden = true;
+  const query = memory.conversation?.query?.trim();
+  if (query) appendMessage("user", query);
+  const answer = memory.conversation?.answer || memory.content;
+  const responseMessage = appendMessage("assistant", answer);
+  renderAnswerLinks(responseMessage.querySelector("p"), answer);
+  state.selectedMemoryId = memory.id;
+  renderMemories();
+  elements.chatInput.value = "";
+  elements.conversation.scrollTop = 0;
+  showToast(query ? "과거 대화를 불러왔습니다." : "저장된 Agent 답변을 불러왔습니다.");
 }
 
 function sourceLabel(urlValue) {
@@ -401,10 +444,11 @@ function traceEmpty(message) {
 
 function startNewConversation() {
   stopChat();
-  for (const child of [...elements.conversation.children]) {
-    if (child !== initialGuideMessage && child !== elements.starterPrompts) child.remove();
-  }
+  clearRenderedConversation();
+  initialGuideMessage.hidden = false;
   elements.starterPrompts.hidden = false;
+  state.selectedMemoryId = null;
+  renderMemories();
   elements.conversation.scrollTop = 0;
   elements.chatInput.value = "";
   elements.traceRunId.textContent = "실행 대기 중";

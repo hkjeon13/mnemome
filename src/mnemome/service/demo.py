@@ -113,8 +113,18 @@ async def _seed_memories(application: Any, tenant_id: str) -> None:
         )
 
 
+def _conversation_query(fact: Any) -> str | None:
+    if fact.kind != "conversation":
+        return None
+    task_text = fact.metadata.get("task_text")
+    if not isinstance(task_text, str) or not task_text.strip():
+        return None
+    marker = "[사용자 질문]\n"
+    return task_text.rsplit(marker, 1)[-1].strip() if marker in task_text else task_text.strip()
+
+
 def _memory_payload(fact: Any) -> dict[str, Any]:
-    return {
+    payload = {
         "id": fact.fact_id,
         "kind": fact.kind,
         "content": fact.statement,
@@ -124,6 +134,14 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
         "metadata": fact.metadata,
         "is_seed": bool(fact.metadata.get("seeded")),
     }
+    query = _conversation_query(fact)
+    if query:
+        payload["conversation"] = {
+            "query": query,
+            "answer": fact.statement,
+            "run_id": fact.metadata.get("run_id"),
+        }
+    return payload
 
 
 def _is_seed_memory(fact: Any) -> bool:

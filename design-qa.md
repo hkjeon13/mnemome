@@ -112,4 +112,11 @@
 - Source evidence: user annotation showed the header divider ending at the centered content bounds.
 - Fix: extended the header container and divider to the viewport edges while preserving the existing 1180px content alignment and responsive padding.
 
+**Conversation memory replay**
+
+- Source evidence: user annotation on a `CONVERSATION · 대화` memory card requested that the original exchange appear in the adjacent chat canvas.
+- Interaction: conversation cards are now keyboard-accessible buttons; clicking or pressing Enter/Space replaces the canvas with the stored user question and Agent answer.
+- State treatment: the active memory receives a restrained violet border/background, while its delete control remains an independent action.
+- Data fidelity: the replay payload extracts the original user query from Lotte Agent's stored `task_text` metadata and pairs it with the persisted Agent output.
+
 final result: passed
