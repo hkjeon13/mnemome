@@ -38,12 +38,15 @@ async def test_lotte_memory_protocol_round_trip() -> None:
 
 @pytest.mark.asyncio
 async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> None:
+    seen_messages: list[str] = []
+
     class FakeLiveOpenAIModel(AsyncModelBase):
         def __init__(self) -> None:
             self.calls = 0
 
         async def generate(self, messages, *args, **kwargs):
-            del messages, args, kwargs
+            del args, kwargs
+            seen_messages.append(str(messages))
             self.calls += 1
             if self.calls == 1:
                 text = '("[final_answer] 저장된 장기 기억으로 한국어 답변",)'
@@ -97,6 +100,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["model"] == "gpt-live-test"
             assert payload["recalled"]
             assert "한국어" in payload["answer"]
+            assert any("[Mnemome 장기 기억]" in messages for messages in seen_messages)
+            assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
             memories = await client.get("/demo/api/memories")
             kinds = [item["kind"] for item in memories.json()["items"]]

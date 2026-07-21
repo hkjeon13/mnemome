@@ -135,6 +135,18 @@ async def _run_lotte_agent(
 
     memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
     recalled = await memory.search(query, top_k=5)
+    if recalled:
+        memory_context = "\n".join(
+            f"- [{entry.kind.value}] {entry.content}" for entry in recalled
+        )
+    else:
+        memory_context = "- 관련 장기 기억 없음"
+    agent_task = (
+        "다음 Mnemome 장기 기억을 우선 근거로 사용해 사용자 질문에 한국어로 답하세요. "
+        "기억과 질문이 직접 관련되면 기억의 내용을 정확히 반영하고, 없는 사실은 만들지 마세요.\n\n"
+        f"[Mnemome 장기 기억]\n{memory_context}\n\n"
+        f"[사용자 질문]\n{query}"
+    )
 
     live_model = AsyncOpenAIClient(
         api_key=api_key,
@@ -161,7 +173,7 @@ async def _run_lotte_agent(
         debug_verbosity="none",
     ) as agent:
         result = await asyncio.wait_for(
-            agent.run(query, run_id=run_id, metadata={"language": "ko"}), timeout=45
+            agent.run(agent_task, run_id=run_id, metadata={"language": "ko"}), timeout=45
         )
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
     return result.text, recalled, elapsed_ms, model_name
