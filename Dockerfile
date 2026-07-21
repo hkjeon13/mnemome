@@ -1,8 +1,22 @@
+FROM python:3.12-slim AS mecab-builder
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+       autoconf automake build-essential libtool pkg-config \
+    && apt-get clean
+WORKDIR /build/mecab
+COPY vendor/mecab ./
+RUN bash ./install.sh
+
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    LD_LIBRARY_PATH=/usr/local/lib
+
+COPY --from=mecab-builder /mecab-runtime/ /
+RUN ldconfig
 
 RUN groupadd --system --gid 10001 mnemome \
     && useradd --system --uid 10001 --gid mnemome --home-dir /app mnemome
@@ -15,6 +29,7 @@ ARG REQUIRE_LOTTE_AGENT=0
 RUN python -m pip install --upgrade pip \
     && python -m pip install ".[service]" \
     && python -m nltk.downloader -d /usr/local/share/nltk_data punkt_tab averaged_perceptron_tagger_eng \
+    && python -c "from konlpy.tag import Mecab; assert Mecab().nouns('엔비디아 관련 기사')" \
     && lotte_wheel="$(find ./vendor -maxdepth 1 -name 'lotte_agent-*.whl' -print -quit)" \
     && if [ -n "$lotte_wheel" ]; then python -m pip install "$lotte_wheel"; \
        elif [ "$REQUIRE_LOTTE_AGENT" = "1" ]; then echo "Lotte Agent wheel is required" >&2; exit 1; fi

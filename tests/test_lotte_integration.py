@@ -11,7 +11,14 @@ from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
 from mnemome.integrations.lotte_agent import MnemomeLongTermMemory
 from mnemome.service.app import create_app
+from mnemome.service.demo import _needs_fresh_search
 from mnemome.service.settings import ApiPrincipal, Settings
+
+
+def test_news_query_requires_fresh_search() -> None:
+    assert _needs_fresh_search("엔비디아 뉴스") is True
+    assert _needs_fresh_search("오늘 엔비디아 관련 소식 찾아줘") is True
+    assert _needs_fresh_search("내가 선호하는 답변 방식은?") is False
 
 
 @pytest.mark.asyncio
@@ -127,9 +134,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["execution_trace"]["plan"]["step_count"] >= 1
             assert payload["execution_trace"]["steps"][0]["title"]
             assert payload["memory_trace"]["long_term"]["status"] == "applied"
-            assert payload["memory_trace"]["long_term"]["retriever"] == (
-                "BM25 · MeCab/PeCab + NLTK"
-            )
+            assert payload["memory_trace"]["long_term"]["retriever"].startswith("BM25 · ")
             assert payload["memory_trace"]["short_term"]["status"] == "applied"
             assert payload["memory_trace"]["cultural"]["status"] == "not_configured"
             assert payload["preference_captured"] is False

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
+from ..retrieval import recall_backend_label
 
 DEMO_COOKIE = "mnemome_demo_session"
 DEMO_TENANT_PREFIX = "demo_"
@@ -196,6 +197,22 @@ def _looks_like_preference_instruction(text: str) -> bool:
     )
 
 
+def _needs_fresh_search(text: str) -> bool:
+    normalized = " ".join(text.casefold().split())
+    freshness_markers = (
+        "뉴스",
+        "news",
+        "최신",
+        "최근",
+        "오늘",
+        "현재",
+        "실시간",
+        "검색해",
+        "찾아줘",
+    )
+    return any(marker in normalized for marker in freshness_markers)
+
+
 def _mcp_settings() -> tuple[str, set[str]]:
     url = os.getenv("MNEMOME_MCP_URL", "").strip()
     configured = os.getenv("MNEMOME_MCP_TOOL_ALLOWLIST", "").strip()
@@ -263,9 +280,21 @@ async def _run_lotte_agent(
         )
     else:
         memory_context = "- 관련 장기 기억 없음"
+    needs_fresh_search = _needs_fresh_search(query)
+    search_instruction = (
+        "이 질문은 최신 정보 요청입니다. 반드시 search_retrieve를 domain='news', "
+        "limit=15로 실행한 뒤 그 결과를 답변의 사실 근거로 사용하세요. "
+        "company_search는 기업 식별 도구일 뿐 뉴스 검색을 대체할 수 없습니다. "
+        "장기 기억은 사용자 맥락과 선호에만 사용하세요.\n\n"
+        if needs_fresh_search
+        else ""
+    )
     agent_task = (
-        "다음 Mnemome 장기 기억을 우선 근거로 사용해 사용자 질문에 한국어로 답하세요. "
-        "기억과 질문이 직접 관련되면 기억의 내용을 정확히 반영하고, 없는 사실은 만들지 마세요.\n\n"
+        "Mnemome 장기 기억은 사용자의 선호와 과거 대화 맥락으로 사용하세요. "
+        "현재 사실이나 외부 정보가 필요한 질문은 허용된 MCP 도구 결과를 우선 근거로 삼고, "
+        "기억에 저장된 과거 답변을 최신 사실처럼 재사용하지 마세요. "
+        "질문에는 한국어로 답하고 없는 사실은 만들지 마세요.\n\n"
+        f"{search_instruction}"
         f"[Mnemome 장기 기억]\n{memory_context}\n\n"
         f"[사용자 질문]\n{query}"
     )
@@ -291,16 +320,16 @@ async def _run_lotte_agent(
             tools=agent_tools,
             name="Mnemome Memory Guide",
             description=(
-                "Mnemome 장기 기억을 실제로 검색해 답하는 한국어 Agent. "
-                "주어진 long_term_memory를 우선 근거로 사용하고, 최신 정보가 필요하면 "
-                "허용된 MCP 검색 도구를 사용하며, 기억에 없는 사실을 지어내지 않는다."
+                "Mnemome 장기 기억을 사용자 맥락으로 활용하고 MCP 도구로 현재 사실을 "
+                "조회하는 한국어 Agent. 뉴스와 최신 정보 요청은 search_retrieve를 반드시 "
+                "사용하며, 과거 기억을 현재 사실로 대체하지 않는다."
             ),
             long_term_memory=memory,
             memory_search_top_k=5,
             memory_store_outputs=True,
             deterministic_trajectory=True,
             max_replans=0,
-            num_steps=2,
+            num_steps=4,
             debug_verbosity="none",
             workflow_cache_dir="/tmp/mnemome-workflows",
             tracking_workflow_detail="preview",
@@ -522,10 +551,10 @@ def build_demo_router() -> APIRouter:
                     "count": len(recalled),
                     "label": "Mnemome 장기 기억",
                     "detail": (
-                        "BM25와 MeCab/PeCab + NLTK 토큰화를 사용해 관련 영속 기억을 "
-                        "조회하고 Agent 입력에 적용했습니다."
+                        "BM25와 MeCab + NLTK 토큰화를 사용해 관련 영속 기억을 조회하고 "
+                        "Agent 입력에 적용했습니다."
                     ),
-                    "retriever": "BM25 · MeCab/PeCab + NLTK",
+                    "retriever": recall_backend_label(),
                     "kinds": sorted({entry.kind.value for entry in recalled}),
                 },
                 "short_term": {

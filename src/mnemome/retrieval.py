@@ -78,6 +78,13 @@ def recall_tokenizer() -> MecabNltkTokenizer:
     return MecabNltkTokenizer()
 
 
+def recall_backend_label() -> str:
+    tokenizer = recall_tokenizer()
+    korean_backend = type(tokenizer._mecab).__name__ if tokenizer._mecab else "regex"
+    english_backend = "NLTK" if tokenizer._nltk else "regex"
+    return f"BM25 · {korean_backend} + {english_backend}"
+
+
 @lru_cache(maxsize=4096)
 def tokenize_for_recall(text: str) -> tuple[str, ...]:
     return tuple(recall_tokenizer()(text))

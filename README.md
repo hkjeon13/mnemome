@@ -78,10 +78,11 @@ search or suppress them, and ask a Lotte Agent runtime to use recalled memories.
 Successful Agent output is stored back as a conversation memory.
 Persistent instructions expressed with markers such as `앞으로` or `항상` are
 also promoted to preference memories and injected into every later run.
-Recall uses BM25 over MeCab-compatible Korean noun tokens (system MeCab when
-available, otherwise PeCab) and NLTK English noun tokens. Tokenization is
-cached, and the same transport-independent implementation serves both the
-embedded library and HTTP service profiles.
+Recall uses BM25 over MeCab Korean noun tokens and NLTK English noun tokens.
+The service image builds MeCab-ko and its Korean dictionary from the vendored,
+checksummed source archives; PeCab remains only an embedded-library fallback
+when the host has no system MeCab. Tokenization is cached, and the same
+transport-independent implementation serves both profiles.
 The memory vault marks the three built-in samples as protected. A browser can
 clear every user-created and Agent-generated memory in its own isolated demo
 tenant without affecting those samples or any other browser session.
@@ -101,6 +102,9 @@ remote streamable-HTTP MCP server inside the API process. The public profile
 uses an explicit read-oriented allowlist for web/news retrieval, company and
 market data, analysis, and sandboxed calculation. Document mutation, artifact
 creation, and browser-control tools are not exposed to public demo users.
+Freshness-sensitive requests such as `엔비디아 뉴스` explicitly require
+Lotte Agent to execute `search_retrieve` with the news domain; recalled memory
+remains user context and cannot substitute for current search evidence.
 
 ## Development
 
