@@ -74,5 +74,6 @@
 - Source evidence: user annotation on live news answers where long raw URLs dominated the response hierarchy.
 - Fix: Agent instructions now require descriptive Markdown links, and the client safely renders both Markdown links and any fallback raw URLs as labeled anchors after streaming completes.
 - Visual result: source labels use the same restrained blue family as semantic memory accents and open in a new tab with `noopener noreferrer`.
+- Public verification: the deployed news request rendered a `로이터` anchor rather than the raw Reuters URL; its link opened with `target="_blank"` and `rel="noopener noreferrer"`. The final three message margins were `18px`, `44px`, and `44px`, confirming onboarding and conversation rhythm.
 
 final result: passed
