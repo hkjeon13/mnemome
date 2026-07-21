@@ -39,6 +39,11 @@ The public demo uses Lotte Agent's real `AsyncOpenAIClient`. Set
 the server-side `.env`. Public calls have per-session and global rate limits and
 a bounded model output budget.
 
+The demo enables Lotte Agent workflow tracking for each chat run. Only a
+sanitized plan/step summary is returned to the browser; prompt and output
+previews remain server-local. Cultural memory is reported as unconfigured until
+a real cultural snapshot provider replaces the `csp_none_*` placeholder.
+
 ## Upgrade and rollback
 
 ```bash

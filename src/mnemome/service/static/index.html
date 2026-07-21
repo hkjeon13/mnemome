@@ -128,6 +128,44 @@
         </aside>
       </section>
 
+      <section class="trace-section" id="trace-section" aria-label="Agent 실행 및 메모리 추적">
+        <div class="trace-section-heading">
+          <div>
+            <span class="panel-kicker">RUNTIME OBSERVABILITY</span>
+            <h2>Agent가 생각하고 기억을 적용한 경로</h2>
+          </div>
+          <span class="trace-run-id" id="trace-run-id">실행 대기 중</span>
+        </div>
+
+        <div class="trace-grid">
+          <article class="trace-card execution-card">
+            <div class="trace-card-heading">
+              <div>
+                <span>LOTTE AGENT TRACE</span>
+                <h3>Plan &amp; Steps</h3>
+              </div>
+              <span class="trace-summary" id="trace-summary">아직 실행 기록이 없습니다</span>
+            </div>
+            <div class="step-list" id="execution-steps">
+              <div class="trace-empty">질문을 보내면 실제 plan 제목과 중간 step이 여기에 표시됩니다.</div>
+            </div>
+          </article>
+
+          <article class="trace-card memory-route-card">
+            <div class="trace-card-heading">
+              <div>
+                <span>MEMORY ROUTES</span>
+                <h3>메모리 적용 지점</h3>
+              </div>
+              <span class="trace-summary">Long · Short · Cultural</span>
+            </div>
+            <div class="memory-routes" id="memory-routes">
+              <div class="trace-empty">실행 후 각 메모리 계층의 적용 여부와 범위를 표시합니다.</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="system-note">
         <div>
           <span class="note-icon">◎</span>

@@ -83,6 +83,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             page = await client.get("/")
             assert page.status_code == 200
             assert "Mnemome · Agent Memory Lab" in page.text
+            assert "LOTTE AGENT TRACE" in page.text
+            assert "메모리 적용 지점" in page.text
 
             status = await client.get("/demo/api/status")
             assert status.status_code == 200
@@ -100,12 +102,29 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["model"] == "gpt-live-test"
             assert payload["recalled"]
             assert "한국어" in payload["answer"]
+            assert payload["execution_trace"]["plan"]["step_count"] >= 1
+            assert payload["execution_trace"]["steps"][0]["title"]
+            assert payload["memory_trace"]["long_term"]["status"] == "applied"
+            assert payload["memory_trace"]["short_term"]["status"] == "applied"
+            assert payload["memory_trace"]["cultural"]["status"] == "not_configured"
+            assert payload["preference_captured"] is False
             assert any("[Mnemome 장기 기억]" in messages for messages in seen_messages)
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
+
+            preference_text = "앞으로 지명을 나타낼 때는 한자 표기도 함께 표시해줘."
+            preference_response = await client.post(
+                "/demo/api/chat", json={"query": preference_text}
+            )
+            assert preference_response.status_code == 200, preference_response.text
+            assert preference_response.json()["preference_captured"] is True
 
             memories = await client.get("/demo/api/memories")
             kinds = [item["kind"] for item in memories.json()["items"]]
             assert "conversation" in kinds
+            preferences = [
+                item for item in memories.json()["items"] if item["kind"] == "preference"
+            ]
+            assert any(item["content"] == preference_text for item in preferences)
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="https://another.test"

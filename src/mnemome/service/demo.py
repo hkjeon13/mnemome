@@ -110,14 +110,87 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
     }
 
 
+def _workflow_trace(payload: dict[str, Any] | None) -> dict[str, Any]:
+    nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
+    safe_nodes = [node for node in nodes if isinstance(node, dict)]
+    plan_node = next((node for node in safe_nodes if node.get("kind") == "plan"), None)
+    run_node = next((node for node in safe_nodes if node.get("kind") == "run"), None)
+    step_nodes = [node for node in safe_nodes if node.get("kind") == "step"]
+    indexed_nodes = {
+        node.get("metadata", {}).get("step_index"): node
+        for node in step_nodes
+        if isinstance(node.get("metadata"), dict)
+    }
+    raw_steps = []
+    if plan_node and isinstance(plan_node.get("metadata"), dict):
+        candidate_steps = plan_node["metadata"].get("steps", [])
+        if isinstance(candidate_steps, list):
+            raw_steps = candidate_steps
+
+    steps: list[dict[str, Any]] = []
+    for position, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            continue
+        raw_index = raw_step.get("index")
+        node = indexed_nodes.get(raw_index) or indexed_nodes.get(position - 1) or {}
+        title = str(raw_step.get("text") or node.get("label") or f"Step {position}")
+        steps.append(
+            {
+                "index": position,
+                "title": title[:240],
+                "tool": str(raw_step.get("tool") or "final_answer")[:80],
+                "status": str(node.get("status") or "ok"),
+                "latency_ms": node.get("latency_ms"),
+            }
+        )
+    if not steps:
+        for position, node in enumerate(step_nodes, start=1):
+            steps.append(
+                {
+                    "index": position,
+                    "title": str(node.get("label") or f"Step {position}")[:240],
+                    "tool": str(node.get("metadata", {}).get("tool") or "final_answer")[:80],
+                    "status": str(node.get("status") or "ok"),
+                    "latency_ms": node.get("latency_ms"),
+                }
+            )
+
+    llm_calls = 0
+    for node in safe_nodes:
+        metadata = node.get("metadata")
+        if isinstance(metadata, dict) and isinstance(metadata.get("llm_events"), list):
+            llm_calls += len(metadata["llm_events"])
+    return {
+        "plan": {
+            "title": str((plan_node or {}).get("label") or "Direct response")[:180],
+            "status": str((plan_node or {}).get("status") or "ok"),
+            "latency_ms": (plan_node or {}).get("latency_ms"),
+            "step_count": len(steps),
+        },
+        "steps": steps,
+        "llm_calls": llm_calls,
+        "total_latency_ms": (run_node or {}).get("latency_ms"),
+    }
+
+
+def _looks_like_preference_instruction(text: str) -> bool:
+    normalized = " ".join(text.casefold().split())
+    persistence_markers = ("앞으로", "항상", "매번", "이후에는", "기억해", "선호")
+    instruction_markers = ("해줘", "해주세요", "표기", "표시", "답변", "말해", "작성")
+    return any(marker in normalized for marker in persistence_markers) and any(
+        marker in normalized for marker in instruction_markers
+    )
+
+
 async def _run_lotte_agent(
     application: Any,
     tenant_id: str,
     query: str,
     run_id: str,
-) -> tuple[str, list[Any], float, str]:
+) -> tuple[str, list[Any], float, str, dict[str, Any], bool]:
     try:
         from lotte_agent import AsyncToolCallingAgent
+        from lotte_agent.memory import MemoryEntry, MemoryEntryKind
         from lotte_agent.models import AsyncOpenAIClient
 
         from ..integrations.lotte_agent import MnemomeLongTermMemory
@@ -134,7 +207,34 @@ async def _run_lotte_agent(
     base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
 
     memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
-    recalled = await memory.search(query, top_k=5)
+    captured_preference = False
+    preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
+    if _looks_like_preference_instruction(query):
+        duplicate = next(
+            (entry for entry in preferences if entry.content.casefold() == query.casefold()),
+            None,
+        )
+        if duplicate is None:
+            await memory.store(
+                MemoryEntry(
+                    id=f"{run_id}:preference",
+                    kind=MemoryEntryKind.PREFERENCE,
+                    content=query,
+                    metadata={
+                        "run_id": run_id,
+                        "source_type": "demo_user_instruction",
+                        "source_id": run_id,
+                    },
+                    tags=["conversation-derived", "instruction"],
+                )
+            )
+            captured_preference = True
+            preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
+
+    relevant = await memory.search(query, top_k=5)
+    recalled = list(preferences)
+    recalled.extend(entry for entry in relevant if entry.id not in {item.id for item in recalled})
+    recalled = recalled[:8]
     if recalled:
         memory_context = "\n".join(
             f"- [{entry.kind.value}] {entry.content}" for entry in recalled
@@ -156,6 +256,7 @@ async def _run_lotte_agent(
     )
 
     started = time.perf_counter()
+    workflow_payload: dict[str, Any] | None = None
     async with AsyncToolCallingAgent(
         model=live_model,
         tools={},
@@ -171,12 +272,34 @@ async def _run_lotte_agent(
         max_replans=0,
         num_steps=2,
         debug_verbosity="none",
+        workflow_cache_dir="/tmp/mnemome-workflows",
+        tracking_workflow_detail="preview",
     ) as agent:
         result = await asyncio.wait_for(
-            agent.run(agent_task, run_id=run_id, metadata={"language": "ko"}), timeout=45
+            agent.run(
+                agent_task,
+                run_id=run_id,
+                metadata={"language": "ko"},
+                tracking_workflow=True,
+            ),
+            timeout=45,
         )
+        workflow_payload = agent.get_workflow_payload(run_id)
+        artifact_path = agent.get_workflow_artifact_path(run_id)
+        if artifact_path:
+            try:
+                Path(artifact_path).unlink(missing_ok=True)
+            except OSError:
+                pass
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
-    return result.text, recalled, elapsed_ms, model_name
+    return (
+        result.text,
+        recalled,
+        elapsed_ms,
+        model_name,
+        _workflow_trace(workflow_payload),
+        captured_preference,
+    )
 
 
 def build_demo_router() -> APIRouter:
@@ -289,9 +412,14 @@ def build_demo_router() -> APIRouter:
             )
         )
         try:
-            answer, recalled, elapsed_ms, model_name = await _run_lotte_agent(
-                application, tenant_id, body.query, run.run_id
-            )
+            (
+                answer,
+                recalled,
+                elapsed_ms,
+                model_name,
+                execution_trace,
+                preference_captured,
+            ) = await _run_lotte_agent(application, tenant_id, body.query, run.run_id)
             completed = await application.complete_run(
                 tenant_id,
                 run.run_id,
@@ -311,6 +439,38 @@ def build_demo_router() -> APIRouter:
             "runtime": "AsyncToolCallingAgent",
             "model": model_name,
             "elapsed_ms": elapsed_ms,
+            "execution_trace": execution_trace,
+            "preference_captured": preference_captured,
+            "memory_trace": {
+                "long_term": {
+                    "status": "applied" if recalled else "empty",
+                    "count": len(recalled),
+                    "label": "Mnemome 장기 기억",
+                    "detail": "질문과 관련된 영속 기억을 조회해 Agent 입력에 적용했습니다.",
+                    "kinds": sorted({entry.kind.value for entry in recalled}),
+                },
+                "short_term": {
+                    "status": "applied",
+                    "count": 1 + len(execution_trace["steps"]),
+                    "label": "Lotte Agent 단기 기억",
+                    "detail": (
+                        "현재 질문과 plan/step 실행 문맥에만 유지되며 "
+                        "다음 요청에는 초기화됩니다."
+                    ),
+                    "scope": completed.run_id,
+                },
+                "cultural": {
+                    "status": "not_configured"
+                    if completed.cultural_snapshot_id.startswith("csp_none_")
+                    else "applied",
+                    "count": 0,
+                    "label": "문화적 기억",
+                    "detail": "현재 데모에는 문화적 메모리 공급자가 연결되지 않았습니다."
+                    if completed.cultural_snapshot_id.startswith("csp_none_")
+                    else "문화적 스냅샷을 Agent 실행에 고정했습니다.",
+                    "snapshot_id": completed.cultural_snapshot_id,
+                },
+            },
             "recalled": [
                 {
                     "id": entry.id,

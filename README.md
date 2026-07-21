@@ -76,11 +76,17 @@ The service root provides an interactive memory lab. Each browser gets an
 isolated demo tenant where it can create facts, preferences, and episodes,
 search or suppress them, and ask a Lotte Agent runtime to use recalled memories.
 Successful Agent output is stored back as a conversation memory.
+Persistent instructions expressed with markers such as `앞으로` or `항상` are
+also promoted to preference memories and injected into every later run.
 
 The integration uses `MnemomeLongTermMemory`, an adapter for Lotte Agent's
 public `LongTermMemory` protocol. The public demo uses Lotte Agent's real
 `AsyncOpenAIClient`; the provider key stays in the server environment. Global
 and per-session request limits plus a bounded output budget protect live calls.
+The UI renders a sanitized Lotte Agent workflow trace with real plan titles,
+step states, model-call counts, and latency. It also distinguishes persistent
+long-term recall, run-scoped short-term context, and the currently unconfigured
+cultural-memory provider.
 
 ## Development
 

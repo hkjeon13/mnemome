@@ -18,6 +18,11 @@ const elements = {
   conversation: document.querySelector("#conversation"),
   starterPrompts: document.querySelector("#starter-prompts"),
   sendButton: document.querySelector(".send-button"),
+  traceSection: document.querySelector("#trace-section"),
+  traceRunId: document.querySelector("#trace-run-id"),
+  traceSummary: document.querySelector("#trace-summary"),
+  executionSteps: document.querySelector("#execution-steps"),
+  memoryRoutes: document.querySelector("#memory-routes"),
   toast: document.querySelector("#toast"),
 };
 
@@ -162,6 +167,86 @@ function appendMessage(role, text, meta = []) {
   return message;
 }
 
+function compactMs(value) {
+  if (value === null || value === undefined) return "";
+  return `${Number(value).toLocaleString("ko-KR")} ms`;
+}
+
+function renderExecutionStep(stage, title, detail, status = "ok") {
+  const row = document.createElement("div");
+  row.className = `execution-step ${status === "ok" ? "complete" : status}`;
+  const marker = document.createElement("span");
+  marker.className = "step-marker";
+  marker.textContent = stage;
+  const copy = document.createElement("div");
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const metadata = document.createElement("span");
+  metadata.textContent = detail;
+  copy.append(heading, metadata);
+  const state = document.createElement("span");
+  state.className = "step-state";
+  state.textContent = status === "ok" ? "완료" : status;
+  row.append(marker, copy, state);
+  elements.executionSteps.append(row);
+}
+
+function renderAgentTrace(result) {
+  const trace = result.execution_trace || {};
+  const plan = trace.plan || {};
+  const steps = Array.isArray(trace.steps) ? trace.steps : [];
+  elements.traceRunId.textContent = result.run_id;
+  elements.traceSummary.textContent = `${steps.length} steps · ${trace.llm_calls || 0} LLM calls · ${compactMs(trace.total_latency_ms || result.elapsed_ms)}`;
+  elements.executionSteps.replaceChildren();
+  renderExecutionStep(
+    "PLAN",
+    plan.title || "Direct response",
+    `${plan.step_count || steps.length}개 step · ${compactMs(plan.latency_ms)}`,
+    plan.status || "ok",
+  );
+  for (const step of steps) {
+    const tool = step.tool && step.tool !== "None" ? step.tool : "final_answer";
+    renderExecutionStep(
+      String(step.index).padStart(2, "0"),
+      step.title,
+      `${tool}${step.latency_ms === null || step.latency_ms === undefined ? "" : ` · ${compactMs(step.latency_ms)}`}`,
+      step.status || "ok",
+    );
+  }
+
+  const memoryTrace = result.memory_trace || {};
+  const routes = [
+    ["LTM", memoryTrace.long_term],
+    ["STM", memoryTrace.short_term],
+    ["CULTURE", memoryTrace.cultural],
+  ];
+  elements.memoryRoutes.replaceChildren();
+  for (const [code, route] of routes) {
+    if (!route) continue;
+    const card = document.createElement("div");
+    card.className = `memory-route ${route.status}`;
+    const badge = document.createElement("span");
+    badge.className = "route-code";
+    badge.textContent = code;
+    const copy = document.createElement("div");
+    const heading = document.createElement("strong");
+    heading.textContent = route.label;
+    const detail = document.createElement("p");
+    detail.textContent = route.detail;
+    const extra = document.createElement("span");
+    if (code === "LTM") extra.textContent = `${route.count}개 회상 · ${(route.kinds || []).join(" · ") || "관련 기억 없음"}`;
+    else if (code === "STM") extra.textContent = `${route.count}개 문맥 · 현재 run 한정`;
+    else extra.textContent = route.status === "applied" ? route.snapshot_id : "미적용 · provider 없음";
+    copy.append(heading, detail, extra);
+    const state = document.createElement("span");
+    state.className = "route-state";
+    state.textContent = route.status === "applied" ? "적용됨" : route.status === "empty" ? "비어 있음" : "미적용";
+    card.append(badge, copy, state);
+    elements.memoryRoutes.append(card);
+  }
+  elements.traceSection.classList.add("has-run");
+}
+
 async function sendChat(query) {
   if (state.busy || !query.trim()) return;
   state.busy = true;
@@ -182,7 +267,9 @@ async function sendChat(query) {
       `${result.elapsed_ms} ms`,
       result.run_id.slice(0, 18),
     ]);
+    renderAgentTrace(result);
     await loadMemories();
+    if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
     typing.remove();
     appendMessage("assistant", `실행 중 문제가 발생했습니다: ${error.message}`);
