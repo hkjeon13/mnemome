@@ -320,15 +320,13 @@ async def _run_lotte_agent(
             workflow_cache_dir="/tmp/mnemome-workflows",
             tracking_workflow_detail="preview",
         ) as agent:
-            result = await asyncio.wait_for(
-                agent.run(
+            async with asyncio.timeout(45):
+                result = await agent.run(
                     agent_task,
                     run_id=run_id,
                     metadata={"language": "ko"},
                     tracking_workflow=True,
-                ),
-                timeout=45,
-            )
+                )
             workflow_payload = agent.get_workflow_payload(run_id)
             artifact_path = agent.get_workflow_artifact_path(run_id)
             if artifact_path:
