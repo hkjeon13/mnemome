@@ -224,18 +224,20 @@
 
 - Source visual truth: `/tmp/codex-remote-attachments/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/cc945054-1402-4e2a-80a0-84933c45e507/1-Photo-1.jpg`, supplied from the deployed Playground on a mobile device.
 - Local implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-bold-qa/local-fixed-mobile.jpg`.
+- Production implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-bold-qa/production-fixed.jpg`, captured from a new live Agent run after deployment.
 - Focused comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-bold-qa/focused-comparison.jpg` (source top, implementation bottom).
 - Viewport evidence: the supplied source is a 597 × 1280 physical-pixel mobile capture; local responsive verification used a 390 × 844 CSS-pixel viewport. The local capture isolates the response component because the private production Agent runtime is unavailable locally.
 - Earlier P2 finding: completed Markdown strong markers such as `**2026년 2분기 실적 발표 예정**` remained visible as raw punctuation instead of producing emphasized text.
 - Fix made: extended the existing safe DOM renderer to recognize completed `**...**` spans and create `<strong>` nodes without using `innerHTML`. During streaming, an unmatched opening marker remains plain text until its closing marker arrives; completed strong content then renders on the next animation frame. Existing HTTP(S)-only link behavior is preserved.
 - Behavioral evidence: the exact renderer source produced one STRONG node and one link for a mixed bold/link response, kept an incomplete strong tail as text, converted it after the closing marker arrived, and left a `javascript:` Markdown link as non-clickable text.
 - Post-fix visual evidence: the heading contains no raw `**`, computes to font weight 700, remains inside its 304px content column, and has no horizontal overflow.
+- Production evidence: a live request whose final answer was `**볼드 렌더링 확인**` produced a STRONG node reading `볼드 렌더링 확인`; the rendered response contained no raw asterisks, computed to font weight 700, and had no horizontal overflow.
 - Fonts and typography: the existing message family, size, line height, wrapping, and hierarchy are unchanged; only semantically strong text now receives the intended 700 weight.
 - Spacing and layout rhythm: message width, padding, newline preservation, composer position, and responsive layout are unchanged.
 - Colors and visual tokens: existing text and link colors are reused; no palette token changed.
 - Image quality and assets: no image or icon assets changed.
 - Copy and content: response copy is unchanged apart from removing the Markdown delimiter characters from rendered output.
-- Console errors checked: no warning or error entries were observed in the local component verification.
+- Console errors checked: no warning or error entries were observed in either the local component verification or deployed live-run verification.
 - Automated checks: JavaScript syntax, `git diff --check`, Ruff, the service API test, and all nine tests not requiring the private Lotte runtime passed.
 - Remaining P0/P1/P2 findings: none.
 
