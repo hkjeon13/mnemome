@@ -215,9 +215,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(5px); 
 .dialog-copy { margin: 0; color: #555555; font-size: 13px; line-height: 1.7; }
 .icon-button { border: 0; background: transparent; color: var(--muted); font-size: 23px; cursor: pointer; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
-.secondary-button, .primary-button { padding: 10px 15px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.secondary-button, .primary-button, .danger-button { padding: 10px 15px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--muted); }
 .primary-button { border: 0; background: var(--mint); color: #fff; }
+.danger-button { border: 0; background: #8f3d3d; color: #fff; }
+.danger-button:hover { background: #763232; }
 
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: 330px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); box-shadow: var(--shadow); font-size: 12px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: 0.25s ease; }
 .toast.show { opacity: 1; transform: translateY(0); }

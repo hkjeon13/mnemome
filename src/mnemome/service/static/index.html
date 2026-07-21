@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-korean-ime-fix" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-memory-delete-confirm" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -91,10 +91,13 @@
                   <path d="M21 21v-5h-5" />
                 </svg>
               </button>
-              <button class="clear-button" id="clear-session-memories" type="button" aria-label="사용자 기억 초기화" title="사용자 기억 초기화">
-                <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-rotate-ccw">
-                  <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                  <path d="M3 3v5h5" />
+              <button class="clear-button" id="clear-session-memories" type="button" aria-label="사용자 기억 삭제" title="사용자 기억 삭제">
+                <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-trash-2">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
                 </svg>
               </button>
               <button class="collapse-button" id="toggle-memory-panel" type="button" aria-expanded="true" aria-label="메모리 패널 접기" title="메모리 패널 접기">
@@ -226,7 +229,27 @@
       </form>
     </dialog>
 
+    <dialog id="clear-memories-dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-heading">
+          <div>
+            <span class="panel-kicker">DELETE MEMORIES</span>
+            <h2>사용자 기억을 삭제할까요?</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-copy">
+          현재 브라우저 세션에서 추가된 사용자 기억 <strong id="clearable-memory-total">0개</strong>가 삭제됩니다.
+          기본 샘플 3개는 유지되며, 삭제한 기억은 되돌릴 수 없습니다.
+        </p>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel" type="submit">취소</button>
+          <button class="danger-button" value="confirm" type="submit">기억 삭제</button>
+        </div>
+      </form>
+    </dialog>
+
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-korean-ime-fix" defer></script>
+    <script src="/static/app.js?v=20260721-memory-delete-confirm" defer></script>
   </body>
 </html>

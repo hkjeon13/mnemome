@@ -126,4 +126,10 @@
 - Cause: the form submitted during active IME composition, then the browser's later composition completion wrote the final character back into the cleared textarea.
 - Fix: track composition start/end, defer an Enter submission until the composed value is committed, and retain the existing immediate Enter behavior for non-IME input.
 
+**Destructive memory action**
+
+- Source evidence: the reset-style icon for clearing user memories was visually confusable with the adjacent new-conversation action.
+- Fix: replaced it with the existing Lucide trash visual language and renamed the accessible action to `사용자 기억 삭제`.
+- Confirmation: a dedicated modal now states the exact user-memory count, preserves the three seed samples, and warns that deletion cannot be undone before the destructive request runs.
+
 final result: passed

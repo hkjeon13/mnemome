@@ -128,13 +128,15 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'id="trace-view-tab"' in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-korean-ime-fix" in page.text
+            assert "20260721-memory-delete-confirm" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
-            assert "lucide-rotate-ccw" in page.text
             assert "lucide-refresh-cw" in page.text
             assert 'id="open-new-conversation"' in page.text
             assert 'id="new-conversation-dialog"' in page.text
+            assert 'id="clear-memories-dialog"' in page.text
+            assert 'data-icon="lucide-trash-2"' in page.text
+            assert "삭제한 기억은 되돌릴 수 없습니다" in page.text
             assert "저장된 장기 메모리는 그대로 유지" in page.text
             script = await client.get("/static/app.js")
             assert script.status_code == 200

@@ -20,6 +20,8 @@ const elements = {
   traceTab: document.querySelector("#trace-view-tab"),
   memoryDialog: document.querySelector("#memory-dialog"),
   newConversationDialog: document.querySelector("#new-conversation-dialog"),
+  clearMemoriesDialog: document.querySelector("#clear-memories-dialog"),
+  clearMemoryCount: document.querySelector("#clearable-memory-total"),
   openMemoryForm: document.querySelector("#open-memory-form"),
   openNewConversation: document.querySelector("#open-new-conversation"),
   clearSessionMemories: document.querySelector("#clear-session-memories"),
@@ -225,10 +227,6 @@ async function deleteMemory(memoryId) {
 
 async function clearSessionMemories() {
   if (!state.clearableCount) return;
-  const confirmed = window.confirm(
-    `현재 브라우저 세션에서 생성된 기억 ${state.clearableCount}개를 비울까요? 기본 샘플 3개는 유지됩니다.`,
-  );
-  if (!confirmed) return;
   elements.clearSessionMemories.disabled = true;
   try {
     const result = await api("/demo/api/memories", { method: "DELETE" });
@@ -540,7 +538,14 @@ elements.newConversationDialog.addEventListener("close", () => {
   if (elements.newConversationDialog.returnValue === "confirm") startNewConversation();
   elements.newConversationDialog.returnValue = "";
 });
-elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
+elements.clearSessionMemories.addEventListener("click", () => {
+  elements.clearMemoryCount.textContent = `${state.clearableCount}개`;
+  elements.clearMemoriesDialog.showModal();
+});
+elements.clearMemoriesDialog.addEventListener("close", () => {
+  if (elements.clearMemoriesDialog.returnValue === "confirm") clearSessionMemories();
+  elements.clearMemoriesDialog.returnValue = "";
+});
 function showSidebarView(view) {
   const traceActive = view === "trace" && !elements.traceTab.hidden;
   elements.memoryView.hidden = traceActive;
