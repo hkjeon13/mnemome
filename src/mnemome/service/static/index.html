@@ -9,11 +9,11 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-light" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-nav" />
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="Mnemome 홈">
+      <a class="brand" href="/playground" aria-label="Mnemome Playground">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 44 44" role="img">
             <path d="M12 30V14l10 8 10-8v16" />
@@ -28,23 +28,13 @@
           <small>Agent Memory Lab</small>
         </span>
       </a>
-      <div class="runtime-status" data-testid="runtime-status">
-        <span class="status-dot"></span>
-        <span id="runtime-label">연결 확인 중</span>
-      </div>
+      <nav class="site-nav" aria-label="주요 메뉴">
+        <a class="active" href="/playground" aria-current="page">Playground</a>
+        <a href="/documents">API Documents</a>
+      </nav>
     </header>
 
     <main>
-      <section class="hero">
-        <div class="hero-flow" aria-label="데모 처리 흐름">
-          <div><b>01</b><span>기억 저장</span><small>Fact · Preference · Episode</small></div>
-          <i>→</i>
-          <div><b>02</b><span>관련 기억 검색</span><small>Tenant-scoped recall</small></div>
-          <i>→</i>
-          <div><b>03</b><span>Agent 실행</span><small>Lotte Agent runtime</small></div>
-        </div>
-      </section>
-
       <section class="workspace" aria-label="Mnemome 데모 워크스페이스">
         <article class="panel chat-panel">
           <div class="panel-heading">
@@ -52,7 +42,6 @@
               <span class="panel-kicker">AGENT PLAYGROUND</span>
               <h2>기억 기반 대화</h2>
             </div>
-            <span class="agent-chip">Lotte Agent</span>
           </div>
 
           <div class="conversation" id="conversation" aria-live="polite">
@@ -60,10 +49,7 @@
               <div class="avatar">M</div>
               <div class="message-body">
                 <span class="message-author">Mnemome Guide</span>
-                <p>
-                  오른쪽에 저장된 기억을 바탕으로 답변합니다. 아래 예시 질문을 선택하거나 직접
-                  입력해 보세요.
-                </p>
+                <p>저장된 기억을 바탕으로 답변합니다. 예시 질문을 선택하거나 직접 입력해 보세요.</p>
               </div>
             </div>
             <div class="starter-prompts" id="starter-prompts">
@@ -82,9 +68,14 @@
               placeholder="저장된 기억에 대해 질문해 보세요"
               required
             ></textarea>
-            <button class="send-button" type="submit" aria-label="질문 보내기">
-              <span>보내기</span>
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 11-6-3 12-2-5-6-1Z" /></svg>
+            <button class="send-button" type="submit" aria-label="질문 보내기" title="질문 보내기">
+              <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-arrow-up">
+                <path d="m5 12 7-7 7 7" />
+                <path d="M12 19V5" />
+              </svg>
+              <svg class="icon-stop" viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-square">
+                <rect width="14" height="14" x="5" y="5" rx="2" />
+              </svg>
             </button>
           </form>
         </article>
@@ -95,7 +86,6 @@
               <span class="panel-kicker">MEMORY VAULT</span>
               <h2>내 메모리</h2>
             </div>
-            <span class="count-badge" id="memory-count">0</span>
           </div>
 
           <div class="memory-toolbar">
@@ -105,7 +95,12 @@
               <input id="memory-search" type="search" placeholder="메모리 검색" />
             </label>
             <button class="add-button" id="open-memory-form" type="button">+ 기억 추가</button>
-            <button class="clear-button" id="clear-session-memories" type="button">기록 비우기</button>
+            <button class="clear-button" id="clear-session-memories" type="button" aria-label="사용자 기억 초기화" title="사용자 기억 초기화">
+              <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-rotate-ccw">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
           </div>
 
           <div class="filter-tabs" role="tablist" aria-label="메모리 유형">
@@ -120,7 +115,7 @@
         </aside>
       </section>
 
-      <section class="trace-section" id="trace-section" aria-label="Agent 실행 및 메모리 추적">
+      <section class="trace-section" id="trace-section" aria-label="Agent 실행 및 메모리 추적" hidden>
         <div class="trace-section-heading">
           <div>
             <span class="panel-kicker">RUNTIME OBSERVABILITY</span>
@@ -158,19 +153,6 @@
         </div>
       </section>
 
-      <section class="system-note">
-        <div>
-          <span class="note-icon">◎</span>
-          <div>
-            <strong>이 데모는 실제 저장소를 사용합니다</strong>
-            <p>
-              브라우저별 격리 세션에 최대 50개의 기억이 저장됩니다. Agent 응답도 Conversation
-              기억으로 남으며, 항목 삭제는 provenance 보존을 위해 비활성화 방식으로 처리됩니다.
-            </p>
-          </div>
-        </div>
-        <a href="/docs">API 문서 보기 <span>↗</span></a>
-      </section>
     </main>
 
     <dialog id="memory-dialog">
@@ -212,6 +194,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-bm25" defer></script>
+    <script src="/static/app.js?v=20260721-controls" defer></script>
   </body>
 </html>

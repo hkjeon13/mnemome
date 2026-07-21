@@ -1,9 +1,13 @@
-const state = { memories: [], kind: "", query: "", busy: false, clearableCount: 0 };
+const state = {
+  memories: [],
+  kind: "",
+  query: "",
+  busy: false,
+  clearableCount: 0,
+  abortController: null,
+};
 
 const elements = {
-  runtimeStatus: document.querySelector("[data-testid='runtime-status']"),
-  runtimeLabel: document.querySelector("#runtime-label"),
-  memoryCount: document.querySelector("#memory-count"),
   memoryList: document.querySelector("#memory-list"),
   memorySearch: document.querySelector("#memory-search"),
   filterTabs: document.querySelector(".filter-tabs"),
@@ -65,7 +69,6 @@ function renderMemories() {
     return matchesKind && (!search || haystack.includes(search));
   });
 
-  elements.memoryCount.textContent = String(state.memories.length);
   elements.memoryList.replaceChildren();
   if (!filtered.length) {
     const empty = document.createElement("div");
@@ -285,12 +288,26 @@ function renderAgentTrace(result) {
     elements.memoryRoutes.append(card);
   }
   elements.traceSection.classList.add("has-run");
+  elements.traceSection.hidden = false;
+}
+
+function setChatBusy(busy) {
+  state.busy = busy;
+  elements.sendButton.classList.toggle("is-stopping", busy);
+  elements.sendButton.setAttribute("aria-label", busy ? "응답 생성 중지" : "질문 보내기");
+  elements.sendButton.title = busy ? "응답 생성 중지" : "질문 보내기";
+}
+
+function stopChat() {
+  if (!state.busy || !state.abortController) return;
+  state.abortController.abort();
 }
 
 async function sendChat(query) {
   if (state.busy || !query.trim()) return;
-  state.busy = true;
-  elements.sendButton.disabled = true;
+  const controller = new AbortController();
+  state.abortController = controller;
+  setChatBusy(true);
   elements.starterPrompts.hidden = true;
   appendMessage("user", query.trim());
   const typing = appendMessage("assistant", "관련 기억을 검색하고 있습니다…");
@@ -299,6 +316,7 @@ async function sendChat(query) {
     const result = await api("/demo/api/chat", {
       method: "POST",
       body: JSON.stringify({ query: query.trim() }),
+      signal: controller.signal,
     });
     typing.remove();
     appendMessage("assistant", result.answer, [
@@ -312,10 +330,11 @@ async function sendChat(query) {
     if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
     typing.remove();
-    appendMessage("assistant", `실행 중 문제가 발생했습니다: ${error.message}`);
+    if (error.name === "AbortError") appendMessage("assistant", "응답 생성을 중지했습니다.");
+    else appendMessage("assistant", `실행 중 문제가 발생했습니다: ${error.message}`);
   } finally {
-    state.busy = false;
-    elements.sendButton.disabled = false;
+    state.abortController = null;
+    setChatBusy(false);
     elements.chatInput.focus();
   }
 }
@@ -344,6 +363,10 @@ elements.memoryForm.addEventListener("submit", async (event) => {
 
 elements.chatForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (state.busy) {
+    stopChat();
+    return;
+  }
   const query = elements.chatInput.value;
   elements.chatInput.value = "";
   sendChat(query);
@@ -352,6 +375,7 @@ elements.chatForm.addEventListener("submit", (event) => {
 elements.chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
+    if (state.busy) return;
     elements.chatForm.requestSubmit();
   }
 });
@@ -363,12 +387,8 @@ elements.starterPrompts.addEventListener("click", (event) => {
 
 async function initialize() {
   try {
-    const status = await api("/demo/api/status");
-    elements.runtimeStatus.classList.add("ready");
-    elements.runtimeLabel.textContent = `${status.runtime} · ${status.model || "모델 미설정"}${status.mcp_configured ? " · MCP" : ""}`;
     await loadMemories();
   } catch (error) {
-    elements.runtimeLabel.textContent = "연결 실패";
     showToast(error.message, "error");
   }
 }

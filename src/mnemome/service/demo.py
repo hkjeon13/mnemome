@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
@@ -392,8 +392,16 @@ def build_demo_router() -> APIRouter:
     global_chat_limiter = DemoRateLimiter(max_sessions=1, requests_per_minute=30)
 
     @router.get("/")
+    async def demo_root() -> RedirectResponse:
+        return RedirectResponse(url="/playground", status_code=307)
+
+    @router.get("/playground")
     async def demo_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+
+    @router.get("/documents")
+    async def documents_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "documents.html", media_type="text/html")
 
     @router.get("/demo/api/status")
     async def demo_status(request: Request, response: Response) -> dict[str, Any]:

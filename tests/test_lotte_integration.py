@@ -107,14 +107,32 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="https://demo.test"
         ) as client:
-            page = await client.get("/")
+            root = await client.get("/")
+            assert root.status_code == 307
+            assert root.headers["location"] == "/playground"
+
+            page = await client.get("/playground")
             assert page.status_code == 200
             assert "Mnemome · Agent Memory Lab" in page.text
             assert "기억을 넣고" not in page.text
-            assert "20260721-light" in page.text
+            assert "Playground" in page.text
+            assert "API Documents" in page.text
+            assert "Lotte Agent</span>" not in page.text
+            assert "데모 처리 흐름" not in page.text
+            assert "runtime-status" not in page.text
+            assert "memory-count" not in page.text
+            assert "system-note" not in page.text
+            assert 'id="trace-section"' in page.text
+            assert 'id="trace-section" aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
+            assert "20260721-nav" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
-            assert "기록 비우기" in page.text
+            assert "lucide-rotate-ccw" in page.text
+
+            documents = await client.get("/documents")
+            assert documents.status_code == 200
+            assert "API Documents" in documents.text
+            assert "준비 중" in documents.text
 
             status = await client.get("/demo/api/status")
             assert status.status_code == 200
