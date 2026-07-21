@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    environment:
+      MNEMOME_ENV: ${MNEMOME_ENV:-development}
+      MNEMOME_DATABASE_PATH: ${MNEMOME_DATABASE_PATH:-/data/mnemome.db}
+      MNEMOME_API_KEYS: ${MNEMOME_API_KEYS:?MNEMOME_API_KEYS must be configured}
+      MNEMOME_LOG_LEVEL: ${MNEMOME_LOG_LEVEL:-INFO}
+    ports:
+      - "${MNEMOME_BIND_ADDRESS:-127.0.0.1}:${MNEMOME_PORT:-8080}:8080"
+    volumes:
+      - mnemome-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  mnemome-data:

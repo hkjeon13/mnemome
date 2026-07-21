@@ -1,0 +1,36 @@
+flowchart TB
+    subgraph Online["A. 실시간 Agent Workflow — 한 번의 요청"]
+        direction LR
+        Query["1. Query<br/>사용자 요청"]
+        Plan["2. Plan<br/>Context 준비 · 목표 · 실행 단계 결정"]
+        Step1["3. Step 1"]
+        Step2["4. Step 2"]
+        StepN["5. Step N"]
+        Response["6. Response<br/>결과 반환"]
+        Working["개인 단기 Memory<br/>현재 run context"]
+
+        Query --> Plan --> Step1 --> Step2 --> StepN --> Response
+        Step1 -.->|"실패 또는 새 관찰"| Plan
+        Step2 -.->|"필요하면 re-plan"| Plan
+        Plan <--> Working
+        Step1 <--> Working
+        Step2 <--> Working
+        StepN <--> Working
+    end
+
+    subgraph Learning["B. Cultural Learning Workflow — 여러 요청에 걸친 학습"]
+        direction LR
+        Episode["개인 장기 Memory<br/>source episode"]
+        Shared["공유 Memory<br/>협업 evidence"]
+        Pattern["반복 패턴 발견"]
+        Candidate["Meme candidate"]
+        Quarantine["격리 + 독립 평가"]
+        Active["Active meme"]
+
+        Episode --> Pattern --> Candidate --> Quarantine --> Active
+        Episode -.->|"공유가 허용된 contribution"| Shared
+        Shared -->|"독립 evidence와 반복 패턴"| Candidate
+    end
+
+    Response -->|"run을 episode로 정리"| Episode
+    Active -->|"다음 요청의 Plan에 후보 제공"| Plan
