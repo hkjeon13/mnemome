@@ -36,9 +36,9 @@ button { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: min(1180px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 24px 0;
+  width: 100%;
+  margin: 0;
+  padding: 24px max(20px, calc((100% - 1180px) / 2));
   border-bottom: 1px solid var(--line);
 }
 
@@ -232,8 +232,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(5px); 
 }
 
 @media (max-width: 600px) {
-  .site-header, main { width: min(100% - 24px, 1180px); }
-  .site-header { padding: 16px 0; }
+  main { width: min(100% - 24px, 1180px); }
+  .site-header { width: 100%; padding: 16px 12px; }
   .brand small { display: none; }
   .site-nav a { padding: 7px 9px; font-size: 10px; }
   .workspace { border-radius: 18px; }

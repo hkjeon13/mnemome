@@ -107,4 +107,9 @@
 - Interaction: the sidebar refresh control opens a confirmation dialog explaining that chat and trace state reset while saved long-term memories remain available.
 - Confirmed behavior: confirmation restores the welcome prompt, hides and clears the previous execution trace, returns the sidebar to memory view, and preserves every saved memory card.
 
+**Full-width header divider**
+
+- Source evidence: user annotation showed the header divider ending at the centered content bounds.
+- Fix: extended the header container and divider to the viewport edges while preserving the existing 1180px content alignment and responsive padding.
+
 final result: passed
