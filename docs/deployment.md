@@ -34,9 +34,10 @@ redistributed, an authorized build places `lotte_agent-*.whl` under `vendor/`
 and sets `MNEMOME_REQUIRE_LOTTE_AGENT=1`. The wheel is installed into the same
 service image but remains outside the public Git repository.
 
-The public demo uses a deterministic model adapter. It exercises Lotte Agent's
-real planning/run lifecycle and long-term-memory protocol without exposing a
-provider API key or creating unbounded model cost.
+The public demo uses Lotte Agent's real `AsyncOpenAIClient`. Set
+`OPENAI_API_KEY` and optionally `OPENAI_MODEL` (default: `gpt-4.1-mini`) only in
+the server-side `.env`. Public calls have per-session and global rate limits and
+a bounded model output budget.
 
 ## Upgrade and rollback
 

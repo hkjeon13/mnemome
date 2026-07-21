@@ -3,6 +3,8 @@ from __future__ import annotations
 import httpx
 import pytest
 from lotte_agent.memory import MemoryEntry, MemoryEntryKind
+from lotte_agent.models.base import AsyncModelBase
+from lotte_agent.models.model_types import ModelOutput
 
 from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
@@ -35,7 +37,35 @@ async def test_lotte_memory_protocol_round_trip() -> None:
 
 
 @pytest.mark.asyncio
-async def test_demo_page_runs_lotte_agent_with_mnemome_memory() -> None:
+async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> None:
+    class FakeLiveOpenAIModel(AsyncModelBase):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, messages, *args, **kwargs):
+            del messages, args, kwargs
+            self.calls += 1
+            if self.calls == 1:
+                text = '("[final_answer] 저장된 장기 기억으로 한국어 답변",)'
+            else:
+                text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
+            return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
+
+        def generate_stream(self, messages, *args, **kwargs):
+            async def iterator():
+                yield await self.generate(messages, *args, **kwargs)
+
+            return iterator()
+
+    import lotte_agent.models
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-live-test")
+    monkeypatch.setattr(
+        lotte_agent.models,
+        "AsyncOpenAIClient",
+        lambda **kwargs: FakeLiveOpenAIModel(),
+    )
     settings = Settings(
         environment="test",
         database_path=":memory:",
@@ -55,6 +85,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory() -> None:
             assert status.status_code == 200
             assert status.json()["runtime"] == "lotte-agent 0.0.11"
             assert status.json()["runtime_available"] is True
+            assert status.json()["model"] == "gpt-live-test"
             assert status.json()["memory_count"] == 3
 
             response = await client.post(
@@ -63,6 +94,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory() -> None:
             assert response.status_code == 200, response.text
             payload = response.json()
             assert payload["runtime"] == "AsyncToolCallingAgent"
+            assert payload["model"] == "gpt-live-test"
             assert payload["recalled"]
             assert "한국어" in payload["answer"]
 

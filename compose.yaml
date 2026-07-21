@@ -11,6 +11,9 @@ services:
       MNEMOME_DATABASE_PATH: ${MNEMOME_DATABASE_PATH:-/data/mnemome.db}
       MNEMOME_API_KEYS: ${MNEMOME_API_KEYS:?MNEMOME_API_KEYS must be configured}
       MNEMOME_LOG_LEVEL: ${MNEMOME_LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     ports:
       - "${MNEMOME_BIND_ADDRESS:-127.0.0.1}:${MNEMOME_PORT:-8080}:8080"
     volumes:

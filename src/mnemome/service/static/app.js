@@ -237,7 +237,7 @@ async function initialize() {
   try {
     const status = await api("/demo/api/status");
     elements.runtimeStatus.classList.add("ready");
-    elements.runtimeLabel.textContent = `${status.runtime} · ${status.storage}`;
+    elements.runtimeLabel.textContent = `${status.runtime} · ${status.model || "모델 미설정"}`;
     await loadMemories();
   } catch (error) {
     elements.runtimeLabel.textContent = "연결 실패";

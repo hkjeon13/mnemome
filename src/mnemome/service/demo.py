@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import time
 from collections import OrderedDict, deque
@@ -17,6 +18,7 @@ DEMO_COOKIE = "mnemome_demo_session"
 DEMO_TENANT_PREFIX = "demo_"
 DEMO_SESSION_LENGTH = 32
 STATIC_DIR = Path(__file__).with_name("static")
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 
 
 class DemoMemoryBody(BaseModel):
@@ -113,11 +115,10 @@ async def _run_lotte_agent(
     tenant_id: str,
     query: str,
     run_id: str,
-) -> tuple[str, list[Any], float]:
+) -> tuple[str, list[Any], float, str]:
     try:
         from lotte_agent import AsyncToolCallingAgent
-        from lotte_agent.models.base import AsyncModelBase
-        from lotte_agent.models.model_types import ModelOutput
+        from lotte_agent.models import AsyncOpenAIClient
 
         from ..integrations.lotte_agent import MnemomeLongTermMemory
     except ImportError as error:
@@ -126,55 +127,31 @@ async def _run_lotte_agent(
             detail="Lotte Agent runtime이 설치되지 않았습니다.",
         ) from error
 
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
+    model_name = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+
     memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
     recalled = await memory.search(query, top_k=5)
 
-    class DemoMemoryModel(AsyncModelBase):
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def generate(self, messages: Any, *args: Any, **kwargs: Any) -> Any:
-            del messages, args, kwargs
-            self.calls += 1
-            if self.calls == 1:
-                return ModelOutput(
-                    model="mnemome-deterministic-demo",
-                    text='("[final_answer] 저장된 장기 기억을 근거로 질문에 답변",)',
-                    finish_reason="stop",
-                )
-            if not recalled:
-                answer = (
-                    "이 질문과 직접 연결되는 기억을 아직 찾지 못했습니다. "
-                    "오른쪽 메모리 패널에서 사실이나 선호를 추가한 뒤 다시 질문해 보세요."
-                )
-            else:
-                evidence = "\n".join(
-                    f"• [{entry.kind.value}] {entry.content}" for entry in recalled
-                )
-                answer = (
-                    f"Lotte Agent가 관련 기억 {len(recalled)}개를 불러왔습니다.\n\n"
-                    f"{evidence}\n\n"
-                    "위 기억을 현재 질문의 컨텍스트로 사용했습니다. "
-                    "기억을 수정하려면 기존 항목을 비활성화하고 새 항목을 등록해 주세요."
-                )
-            return ModelOutput(
-                model="mnemome-deterministic-demo",
-                text=answer,
-                finish_reason="stop",
-            )
-
-        def generate_stream(self, messages: Any, *args: Any, **kwargs: Any) -> Any:
-            async def iterator():
-                yield await self.generate(messages, *args, **kwargs)
-
-            return iterator()
+    live_model = AsyncOpenAIClient(
+        api_key=api_key,
+        model=model_name,
+        base_url=base_url,
+        generation_parameters={"max_output_tokens": 700},
+    )
 
     started = time.perf_counter()
     async with AsyncToolCallingAgent(
-        model=DemoMemoryModel(),
+        model=live_model,
         tools={},
         name="Mnemome Memory Guide",
-        description="Mnemome 장기 기억을 검색하고 근거와 함께 설명하는 데모 Agent",
+        description=(
+            "Mnemome 장기 기억을 실제로 검색해 답하는 한국어 Agent. "
+            "주어진 long_term_memory를 우선 근거로 사용하고, 기억에 없는 사실을 지어내지 않는다."
+        ),
         long_term_memory=memory,
         memory_search_top_k=5,
         memory_store_outputs=True,
@@ -184,15 +161,17 @@ async def _run_lotte_agent(
         debug_verbosity="none",
     ) as agent:
         result = await asyncio.wait_for(
-            agent.run(query, run_id=run_id, metadata={"language": "ko"}), timeout=15
+            agent.run(query, run_id=run_id, metadata={"language": "ko"}), timeout=45
         )
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
-    return result.text, recalled, elapsed_ms
+    return result.text, recalled, elapsed_ms, model_name
 
 
 def build_demo_router() -> APIRouter:
     router = APIRouter(include_in_schema=False)
     limiter = DemoRateLimiter()
+    chat_limiter = DemoRateLimiter(requests_per_minute=6)
+    global_chat_limiter = DemoRateLimiter(max_sessions=1, requests_per_minute=30)
 
     @router.get("/")
     async def demo_page() -> FileResponse:
@@ -207,16 +186,20 @@ def build_demo_router() -> APIRouter:
         memories = await application.list_facts(tenant_id, limit=100)
         try:
             import lotte_agent
+            from lotte_agent.models import AsyncOpenAIClient  # noqa: F401
 
             runtime = f"lotte-agent {lotte_agent.__version__}"
-            runtime_available = True
+            model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
+            runtime_available = bool(os.getenv("OPENAI_API_KEY", "").strip())
         except ImportError:
             runtime = "lotte-agent unavailable"
+            model = None
             runtime_available = False
         return {
             "status": "ready" if runtime_available else "degraded",
             "runtime": runtime,
             "runtime_available": runtime_available,
+            "model": model,
             "storage": "mnemome-sqlite",
             "memory_count": len(memories),
         }
@@ -276,6 +259,8 @@ def build_demo_router() -> APIRouter:
     ) -> dict[str, Any]:
         session_id, tenant_id = _session(request, response)
         await limiter.check(session_id)
+        await chat_limiter.check(session_id)
+        await global_chat_limiter.check("global")
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
         agent = await application.register_agent(
@@ -292,7 +277,7 @@ def build_demo_router() -> APIRouter:
             )
         )
         try:
-            answer, recalled, elapsed_ms = await _run_lotte_agent(
+            answer, recalled, elapsed_ms, model_name = await _run_lotte_agent(
                 application, tenant_id, body.query, run.run_id
             )
             completed = await application.complete_run(
@@ -312,7 +297,7 @@ def build_demo_router() -> APIRouter:
             "answer": answer,
             "run_id": completed.run_id,
             "runtime": "AsyncToolCallingAgent",
-            "model": "mnemome-deterministic-demo",
+            "model": model_name,
             "elapsed_ms": elapsed_ms,
             "recalled": [
                 {
