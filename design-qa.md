@@ -85,4 +85,10 @@
 - Live follow-up: response completion initially moved the root document by 251px when refocusing the composer. The desktop body is now fixed to the viewport, sidebar overflow is internal, and composer focus uses `preventScroll` so the 91px header boundary remains stationary.
 - User-message polish: removed the redundant `U` avatar while retaining the right-aligned bubble and `You` label.
 
+**Minimal canvas and collapsed rail iteration**
+
+- Source evidence: user annotations identified the redundant chat title block and the collapsed rail's extra logo, search, add, and reset controls.
+- Fix: removed the `AGENT PLAYGROUND / 기억 기반 대화` heading and reduced the collapsed sidebar to one borderless expand control.
+- Expected result: the chat opens directly into conversation content, while the 56px collapsed rail presents one unambiguous action.
+
 final result: passed
