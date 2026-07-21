@@ -110,6 +110,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             page = await client.get("/")
             assert page.status_code == 200
             assert "Mnemome · Agent Memory Lab" in page.text
+            assert "기억을 넣고" not in page.text
+            assert "20260721-light" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "기록 비우기" in page.text
