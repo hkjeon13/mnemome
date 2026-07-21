@@ -6,6 +6,8 @@ const state = {
   clearableCount: 0,
   selectedMemoryId: null,
   abortController: null,
+  isComposing: false,
+  submitAfterComposition: false,
 };
 
 const elements = {
@@ -586,13 +588,31 @@ elements.chatForm.addEventListener("submit", (event) => {
     stopChat();
     return;
   }
+  state.submitAfterComposition = false;
   const query = elements.chatInput.value;
   elements.chatInput.value = "";
   sendChat(query);
 });
 
+elements.chatInput.addEventListener("compositionstart", () => {
+  state.isComposing = true;
+});
+
+elements.chatInput.addEventListener("compositionend", () => {
+  state.isComposing = false;
+  if (!state.submitAfterComposition) return;
+  state.submitAfterComposition = false;
+  window.requestAnimationFrame(() => {
+    if (!state.busy) elements.chatForm.requestSubmit();
+  });
+});
+
 elements.chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
+    if (event.isComposing || state.isComposing || event.keyCode === 229) {
+      state.submitAfterComposition = true;
+      return;
+    }
     event.preventDefault();
     if (state.busy) return;
     elements.chatForm.requestSubmit();

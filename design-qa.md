@@ -120,4 +120,10 @@
 - Data fidelity: the replay payload extracts the original user query from Lotte Agent's stored `task_text` metadata and pairs it with the persisted Agent output.
 - Browser QA correction: the first pass set `hidden` on the onboarding blocks, but their authored flex display overrode the browser default; an explicit hidden-state rule now removes both blocks during replay.
 
+**Korean IME submit handling**
+
+- Source evidence: user screenshot showed the final Korean consonant remaining in the composer after an Enter submission.
+- Cause: the form submitted during active IME composition, then the browser's later composition completion wrote the final character back into the cleared textarea.
+- Fix: track composition start/end, defer an Enter submission until the composed value is committed, and retain the existing immediate Enter behavior for non-IME input.
+
 final result: passed
