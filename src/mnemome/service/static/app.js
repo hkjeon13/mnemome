@@ -49,6 +49,45 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function streamApi(path, options, onEvent) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || "응답 스트림을 시작하지 못했습니다.");
+  }
+  if (!response.body) throw new Error("이 브라우저에서 응답 스트림을 읽을 수 없습니다.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary).replaceAll("\r", "");
+      buffer = buffer.slice(boundary + 2);
+      let event = "message";
+      const data = [];
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (data.length) onEvent(event, JSON.parse(data.join("\n")));
+      boundary = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+}
+
 function showToast(message, type = "success") {
   elements.toast.textContent = message;
   elements.toast.className = `toast show ${type === "error" ? "error" : ""}`;
@@ -183,20 +222,23 @@ function appendMessage(role, text, meta = []) {
   const paragraph = document.createElement("p");
   paragraph.textContent = text;
   body.append(author, paragraph);
-  if (meta.length) {
-    const metadata = document.createElement("div");
-    metadata.className = "message-meta";
-    for (const item of meta) {
-      const chip = document.createElement("span");
-      chip.textContent = item;
-      metadata.append(chip);
-    }
-    body.append(metadata);
-  }
   message.append(avatar, body);
   elements.conversation.append(message);
+  if (meta.length) appendMessageMeta(message, meta);
   elements.conversation.scrollTop = elements.conversation.scrollHeight;
   return message;
+}
+
+function appendMessageMeta(message, meta) {
+  const body = message.querySelector(".message-body");
+  const metadata = document.createElement("div");
+  metadata.className = "message-meta";
+  for (const item of meta) {
+    const chip = document.createElement("span");
+    chip.textContent = item;
+    metadata.append(chip);
+  }
+  body.append(metadata);
 }
 
 function compactMs(value) {
@@ -310,16 +352,36 @@ async function sendChat(query) {
   setChatBusy(true);
   elements.starterPrompts.hidden = true;
   appendMessage("user", query.trim());
-  const typing = appendMessage("assistant", "관련 기억을 검색하고 있습니다…");
-  typing.classList.add("typing");
+  const responseMessage = appendMessage("assistant", "관련 기억을 확인하고 있습니다…");
+  const responseText = responseMessage.querySelector("p");
+  responseMessage.classList.add("typing");
+  let receivedDelta = false;
+  let result = null;
   try {
-    const result = await api("/demo/api/chat", {
-      method: "POST",
-      body: JSON.stringify({ query: query.trim() }),
-      signal: controller.signal,
-    });
-    typing.remove();
-    appendMessage("assistant", result.answer, [
+    await streamApi(
+      "/demo/api/chat/stream",
+      {
+        method: "POST",
+        body: JSON.stringify({ query: query.trim() }),
+        signal: controller.signal,
+      },
+      (event, payload) => {
+        if (event === "delta") {
+          if (!receivedDelta) {
+            receivedDelta = true;
+            responseText.textContent = "";
+            responseMessage.classList.remove("typing");
+          }
+          responseText.textContent += payload.delta || "";
+          elements.conversation.scrollTop = elements.conversation.scrollHeight;
+        } else if (event === "complete") result = payload;
+        else if (event === "error") throw new Error(payload.message || "응답 스트림이 중단되었습니다.");
+      },
+    );
+    if (!result) throw new Error("완료되지 않은 응답 스트림입니다.");
+    responseMessage.classList.remove("typing");
+    if (!receivedDelta) responseText.textContent = result.answer;
+    appendMessageMeta(responseMessage, [
       `${result.runtime}`,
       `recall ${result.recalled.length}`,
       `${result.elapsed_ms} ms`,
@@ -329,9 +391,11 @@ async function sendChat(query) {
     await loadMemories();
     if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
-    typing.remove();
-    if (error.name === "AbortError") appendMessage("assistant", "응답 생성을 중지했습니다.");
-    else appendMessage("assistant", `실행 중 문제가 발생했습니다: ${error.message}`);
+    responseMessage.classList.remove("typing");
+    const errorText = error.name === "AbortError"
+      ? "응답 생성을 중지했습니다."
+      : `실행 중 문제가 발생했습니다: ${error.message}`;
+    responseText.textContent = receivedDelta ? `${responseText.textContent}\n\n${errorText}` : errorText;
   } finally {
     state.abortController = null;
     setChatBusy(false);

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import secrets
 import time
 from collections import OrderedDict, deque
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
@@ -29,6 +32,8 @@ DEFAULT_MCP_TOOLS = (
     "market_data",
     "company_analysis",
 )
+
+logger = logging.getLogger("mnemome.service.demo")
 
 
 class DemoMemoryBody(BaseModel):
@@ -225,6 +230,8 @@ async def _run_lotte_agent(
     tenant_id: str,
     query: str,
     run_id: str,
+    *,
+    stream_delta: Callable[[str], Awaitable[None]] | None = None,
 ) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
     try:
         from lotte_agent import AsyncToolCallingAgent
@@ -318,7 +325,7 @@ async def _run_lotte_agent(
         "tool_count": 0,
         "tools": [],
     }
-    async def execute_agent(agent_tools: list[Any]) -> tuple[Any, dict[str, Any] | None]:
+    async def execute_agent(agent_tools: list[Any]) -> tuple[str, dict[str, Any] | None]:
         async with AsyncToolCallingAgent(
             model=live_model,
             tools=agent_tools,
@@ -338,13 +345,21 @@ async def _run_lotte_agent(
             workflow_cache_dir="/tmp/mnemome-workflows",
             tracking_workflow_detail="preview",
         ) as agent:
+            final_parts: list[str] = []
             async with asyncio.timeout(45):
-                result = await agent.run(
+                async for chunk in agent.run_stream(
                     agent_task,
                     run_id=run_id,
                     metadata={"language": "ko"},
                     tracking_workflow=True,
-                )
+                    return_trimmed_stream=False,
+                ):
+                    delta = chunk.delta_text if chunk.type == "text" else ""
+                    if not delta or not chunk.is_last_step:
+                        continue
+                    final_parts.append(delta)
+                    if stream_delta is not None:
+                        await stream_delta(delta)
             workflow_payload = agent.get_workflow_payload(run_id)
             artifact_path = agent.get_workflow_artifact_path(run_id)
             if artifact_path:
@@ -352,7 +367,7 @@ async def _run_lotte_agent(
                     Path(artifact_path).unlink(missing_ok=True)
                 except OSError:
                     pass
-            return result, workflow_payload
+            return "".join(final_parts), workflow_payload
 
     if mcp_url:
         connected = False
@@ -365,17 +380,17 @@ async def _run_lotte_agent(
                     "tool_count": len(agent_tools),
                     "tools": sorted(tool.name for tool in agent_tools),
                 }
-                result, workflow_payload = await execute_agent(agent_tools)
+                result_text, workflow_payload = await execute_agent(agent_tools)
         except Exception:
             if connected:
                 raise
             mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
-            result, workflow_payload = await execute_agent([])
+            result_text, workflow_payload = await execute_agent([])
     else:
-        result, workflow_payload = await execute_agent([])
+        result_text, workflow_payload = await execute_agent([])
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
     return (
-        result.text,
+        result_text,
         recalled,
         elapsed_ms,
         model_name,
@@ -383,6 +398,116 @@ async def _run_lotte_agent(
         captured_preference,
         mcp_status,
     )
+
+
+async def _execute_demo_chat(
+    application: Any,
+    tenant_id: str,
+    query: str,
+    *,
+    stream_delta: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
+    await _seed_memories(application, tenant_id)
+    agent = await application.register_agent(
+        tenant_id,
+        "Mnemome Memory Guide",
+        ("memory.read", "memory.write", "lotte-agent.runtime"),
+    )
+    run, _context = await application.open_run(
+        OpenRunRequest(
+            tenant_id=tenant_id,
+            agent_id=agent.agent_id,
+            retrieval_text=query,
+            query_ref="demo-ui",
+        )
+    )
+    try:
+        (
+            answer,
+            recalled,
+            elapsed_ms,
+            model_name,
+            execution_trace,
+            preference_captured,
+            mcp_status,
+        ) = await _run_lotte_agent(
+            application,
+            tenant_id,
+            query,
+            run.run_id,
+            stream_delta=stream_delta,
+        )
+        completed = await application.complete_run(
+            tenant_id,
+            run.run_id,
+            {"status": "answered", "runtime": "lotte-agent"},
+            response_ref=f"demo:{run.run_id}",
+        )
+    except Exception as error:
+        await application.fail_run(
+            tenant_id,
+            run.run_id,
+            {"type": type(error).__name__, "message": "Demo Agent execution failed"},
+        )
+        raise
+    return {
+        "answer": answer,
+        "run_id": completed.run_id,
+        "runtime": "AsyncToolCallingAgent",
+        "model": model_name,
+        "elapsed_ms": elapsed_ms,
+        "execution_trace": execution_trace,
+        "preference_captured": preference_captured,
+        "mcp": mcp_status,
+        "memory_trace": {
+            "long_term": {
+                "status": "applied" if recalled else "empty",
+                "count": len(recalled),
+                "label": "Mnemome 장기 기억",
+                "detail": (
+                    "BM25와 MeCab + NLTK 토큰화를 사용해 관련 영속 기억을 조회하고 "
+                    "Agent 입력에 적용했습니다."
+                ),
+                "retriever": recall_backend_label(),
+                "kinds": sorted({entry.kind.value for entry in recalled}),
+            },
+            "short_term": {
+                "status": "applied",
+                "count": 1 + len(execution_trace["steps"]),
+                "label": "Lotte Agent 단기 기억",
+                "detail": (
+                    "현재 질문과 plan/step 실행 문맥에만 유지되며 "
+                    "다음 요청에는 초기화됩니다."
+                ),
+                "scope": completed.run_id,
+            },
+            "cultural": {
+                "status": "not_configured"
+                if completed.cultural_snapshot_id.startswith("csp_none_")
+                else "applied",
+                "count": 0,
+                "label": "문화적 기억",
+                "detail": "현재 데모에는 문화적 메모리 공급자가 연결되지 않았습니다."
+                if completed.cultural_snapshot_id.startswith("csp_none_")
+                else "문화적 스냅샷을 Agent 실행에 고정했습니다.",
+                "snapshot_id": completed.cultural_snapshot_id,
+            },
+        },
+        "recalled": [
+            {
+                "id": entry.id,
+                "kind": entry.kind.value,
+                "content": entry.content,
+                "tags": entry.tags,
+            }
+            for entry in recalled
+        ],
+    }
+
+
+def _sse_event(event: str, payload: dict[str, Any]) -> str:
+    data = json.dumps(payload, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {data}\n\n"
 
 
 def build_demo_router() -> APIRouter:
@@ -511,95 +636,67 @@ def build_demo_router() -> APIRouter:
         await chat_limiter.check(session_id)
         await global_chat_limiter.check("global")
         application = request.app.state.application
-        await _seed_memories(application, tenant_id)
-        agent = await application.register_agent(
-            tenant_id,
-            "Mnemome Memory Guide",
-            ("memory.read", "memory.write", "lotte-agent.runtime"),
-        )
-        run, _context = await application.open_run(
-            OpenRunRequest(
-                tenant_id=tenant_id,
-                agent_id=agent.agent_id,
-                retrieval_text=body.query,
-                query_ref="demo-ui",
-            )
-        )
-        try:
-            (
-                answer,
-                recalled,
-                elapsed_ms,
-                model_name,
-                execution_trace,
-                preference_captured,
-                mcp_status,
-            ) = await _run_lotte_agent(application, tenant_id, body.query, run.run_id)
-            completed = await application.complete_run(
-                tenant_id,
-                run.run_id,
-                {"status": "answered", "runtime": "lotte-agent"},
-                response_ref=f"demo:{run.run_id}",
-            )
-        except Exception as error:
-            await application.fail_run(
-                tenant_id,
-                run.run_id,
-                {"type": type(error).__name__, "message": "Demo Agent execution failed"},
-            )
-            raise
-        return {
-            "answer": answer,
-            "run_id": completed.run_id,
-            "runtime": "AsyncToolCallingAgent",
-            "model": model_name,
-            "elapsed_ms": elapsed_ms,
-            "execution_trace": execution_trace,
-            "preference_captured": preference_captured,
-            "mcp": mcp_status,
-            "memory_trace": {
-                "long_term": {
-                    "status": "applied" if recalled else "empty",
-                    "count": len(recalled),
-                    "label": "Mnemome 장기 기억",
-                    "detail": (
-                        "BM25와 MeCab + NLTK 토큰화를 사용해 관련 영속 기억을 조회하고 "
-                        "Agent 입력에 적용했습니다."
-                    ),
-                    "retriever": recall_backend_label(),
-                    "kinds": sorted({entry.kind.value for entry in recalled}),
-                },
-                "short_term": {
-                    "status": "applied",
-                    "count": 1 + len(execution_trace["steps"]),
-                    "label": "Lotte Agent 단기 기억",
-                    "detail": (
-                        "현재 질문과 plan/step 실행 문맥에만 유지되며 "
-                        "다음 요청에는 초기화됩니다."
-                    ),
-                    "scope": completed.run_id,
-                },
-                "cultural": {
-                    "status": "not_configured"
-                    if completed.cultural_snapshot_id.startswith("csp_none_")
-                    else "applied",
-                    "count": 0,
-                    "label": "문화적 기억",
-                    "detail": "현재 데모에는 문화적 메모리 공급자가 연결되지 않았습니다."
-                    if completed.cultural_snapshot_id.startswith("csp_none_")
-                    else "문화적 스냅샷을 Agent 실행에 고정했습니다.",
-                    "snapshot_id": completed.cultural_snapshot_id,
-                },
+        return await _execute_demo_chat(application, tenant_id, body.query)
+
+    @router.post("/demo/api/chat/stream")
+    async def chat_stream(body: DemoChatBody, request: Request) -> StreamingResponse:
+        session_id = ""
+        tenant_id = ""
+        queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+        async def emit_delta(delta: str) -> None:
+            await queue.put(("delta", {"delta": delta}))
+
+        async def produce() -> None:
+            try:
+                result = await _execute_demo_chat(
+                    request.app.state.application,
+                    tenant_id,
+                    body.query,
+                    stream_delta=emit_delta,
+                )
+                await queue.put(("complete", result))
+            except asyncio.CancelledError:
+                raise
+            except HTTPException as error:
+                await queue.put(("error", {"message": str(error.detail)}))
+            except Exception:
+                logger.exception("Demo streaming chat failed")
+                await queue.put(("error", {"message": "응답 스트림을 완료하지 못했습니다."}))
+            finally:
+                await queue.put(None)
+
+        async def event_stream():
+            producer = asyncio.create_task(produce())
+            yield _sse_event("ready", {"stream": True})
+            try:
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=10)
+                    except TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    if item is None:
+                        break
+                    event, payload = item
+                    yield _sse_event(event, payload)
+            finally:
+                if not producer.done():
+                    producer.cancel()
+                await asyncio.gather(producer, return_exceptions=True)
+
+        streaming_response = StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
             },
-            "recalled": [
-                {
-                    "id": entry.id,
-                    "kind": entry.kind.value,
-                    "content": entry.content,
-                    "tags": entry.tags,
-                }
-                for entry in recalled
-            ],
-        }
+        )
+        session_id, tenant_id = _session(request, streaming_response)
+        await limiter.check(session_id)
+        await chat_limiter.check(session_id)
+        await global_chat_limiter.check("global")
+        return streaming_response
 
     return router

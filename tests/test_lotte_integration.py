@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 from lotte_agent.memory import MemoryEntry, MemoryEntryKind
@@ -124,7 +126,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "system-note" not in page.text
             assert 'id="trace-section"' in page.text
             assert 'id="trace-section" aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-nav" in page.text
+            assert "20260721-stream" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-rotate-ccw" in page.text
@@ -141,6 +143,25 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert status.json()["model"] == "gpt-live-test"
             assert status.json()["mcp_configured"] is True
             assert status.json()["memory_count"] == 3
+
+            streamed = await client.post(
+                "/demo/api/chat/stream", json={"query": "한국어 스트림 응답을 보여줘"}
+            )
+            assert streamed.status_code == 200
+            assert streamed.headers["content-type"].startswith("text/event-stream")
+            assert "event: ready" in streamed.text
+            assert "event: delta" in streamed.text
+            assert "event: complete" in streamed.text
+            complete_line = next(
+                line
+                for block in streamed.text.split("\n\n")
+                if block.startswith("event: complete")
+                for line in block.splitlines()
+                if line.startswith("data: ")
+            )
+            streamed_payload = json.loads(complete_line.removeprefix("data: "))
+            assert streamed_payload["answer"]
+            assert streamed_payload["execution_trace"]["steps"]
 
             response = await client.post(
                 "/demo/api/chat", json={"query": "한국어로 간결하게 답변해줘"}
