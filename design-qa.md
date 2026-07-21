@@ -118,5 +118,6 @@
 - Interaction: conversation cards are now keyboard-accessible buttons; clicking or pressing Enter/Space replaces the canvas with the stored user question and Agent answer.
 - State treatment: the active memory receives a restrained violet border/background, while its delete control remains an independent action.
 - Data fidelity: the replay payload extracts the original user query from Lotte Agent's stored `task_text` metadata and pairs it with the persisted Agent output.
+- Browser QA correction: the first pass set `hidden` on the onboarding blocks, but their authored flex display overrode the browser default; an explicit hidden-state rule now removes both blocks during replay.
 
 final result: passed

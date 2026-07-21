@@ -82,6 +82,7 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64
 .panel-heading h2, .dialog-heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.03em; }
 
 .conversation { flex: 1; min-height: 0; max-height: none; padding: 30px 0 24px; overflow-y: auto; scrollbar-color: #cccccc transparent; }
+.conversation .message[hidden], .conversation .starter-prompts[hidden] { display: none; }
 .message { display: flex; width: min(100%, 800px); align-items: flex-start; gap: 12px; margin: 0 auto 44px; }
 .conversation > .message:first-child { margin-bottom: 18px; }
 .message.user-message { flex-direction: row-reverse; }
