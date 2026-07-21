@@ -334,7 +334,7 @@ function openConversationMemory(memory) {
   if (query) appendMessage("user", query);
   const answer = memory.conversation?.answer || memory.content;
   const responseMessage = appendMessage("assistant", answer);
-  renderAnswerLinks(responseMessage.querySelector("p"), answer);
+  renderAnswerMarkdown(responseMessage.querySelector("p"), answer);
   state.selectedMemoryId = memory.id;
   renderMemories();
   elements.chatInput.value = "";
@@ -361,36 +361,47 @@ function sourceLabel(urlValue) {
   }
 }
 
-function renderAnswerLinks(element, text) {
+function renderAnswerMarkdown(element, text) {
   element.replaceChildren();
-  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g;
+  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)|\*\*([^\n]+?)\*\*/g;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     element.append(document.createTextNode(text.slice(cursor, match.index)));
-    const url = match[2] || match[3];
-    const link = document.createElement("a");
-    link.href = url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = match[1] || sourceLabel(url);
-    element.append(link);
+    if (match[4] !== undefined) {
+      const strong = document.createElement("strong");
+      strong.textContent = match[4];
+      element.append(strong);
+    } else {
+      const url = match[2] || match[3];
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = match[1] || sourceLabel(url);
+      element.append(link);
+    }
     cursor = match.index + match[0].length;
   }
   element.append(document.createTextNode(text.slice(cursor)));
 }
 
-function pendingStreamingLinkStart(text) {
+function pendingStreamingMarkdownStart(text) {
   const markdownTail = text.match(/\[[^\]\n]*\]\(https?:\/\/[^\s)]*$/);
   const bareUrlTail = text.match(/https?:\/\/[^\s<>()]*$/);
+  let strongTailStart = null;
+  for (const match of text.matchAll(/\*\*/g)) {
+    strongTailStart = strongTailStart === null ? match.index : null;
+  }
   const starts = [markdownTail, bareUrlTail]
     .filter(Boolean)
     .map((match) => match.index);
+  if (strongTailStart !== null) starts.push(strongTailStart);
   return starts.length ? Math.min(...starts) : text.length;
 }
 
-function renderStreamingAnswerLinks(element, text) {
-  const pendingStart = pendingStreamingLinkStart(text);
-  renderAnswerLinks(element, text.slice(0, pendingStart));
+function renderStreamingAnswerMarkdown(element, text) {
+  const pendingStart = pendingStreamingMarkdownStart(text);
+  renderAnswerMarkdown(element, text.slice(0, pendingStart));
   element.append(document.createTextNode(text.slice(pendingStart)));
 }
 
@@ -586,7 +597,7 @@ async function sendChat(query) {
     if (answerRenderFrame !== null) return;
     answerRenderFrame = requestAnimationFrame(() => {
       answerRenderFrame = null;
-      renderStreamingAnswerLinks(responseText, streamedAnswer);
+      renderStreamingAnswerMarkdown(responseText, streamedAnswer);
       elements.conversation.scrollTop = elements.conversation.scrollHeight;
     });
   };
@@ -641,7 +652,7 @@ async function sendChat(query) {
     if (!result) throw new Error("완료되지 않은 응답 스트림입니다.");
     cancelAnswerRender();
     responseMessage.classList.remove("typing");
-    renderAnswerLinks(responseText, result.answer || streamedAnswer);
+    renderAnswerMarkdown(responseText, result.answer || streamedAnswer);
     responseMessage.removeAttribute("aria-busy");
     appendMessageMeta(responseMessage, [
       `recall ${result.recalled.length}`,
@@ -659,7 +670,7 @@ async function sendChat(query) {
       ? "응답 생성을 중지했습니다."
       : `실행 중 문제가 발생했습니다: ${error.message}`;
     const partialAnswer = receivedDelta ? `${streamedAnswer}\n\n${errorText}` : errorText;
-    renderAnswerLinks(responseText, partialAnswer);
+    renderAnswerMarkdown(responseText, partialAnswer);
     responseMessage.removeAttribute("aria-busy");
   } finally {
     cancelAnswerRender();

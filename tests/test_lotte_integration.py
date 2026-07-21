@@ -132,7 +132,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-streaming-links" in page.text
+            assert "20260721-streaming-markdown" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -152,8 +152,10 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'appendMessage("assistant", "")' in script.text
             assert 'setAttribute("aria-label", "실행 계획 생성 중")' in script.text
             assert 'status === "running" ? "진행 중" : "시작 대기 중"' in script.text
-            assert "pendingStreamingLinkStart" in script.text
-            assert "renderStreamingAnswerLinks" in script.text
+            assert "pendingStreamingMarkdownStart" in script.text
+            assert "renderAnswerMarkdown" in script.text
+            assert "renderStreamingAnswerMarkdown" in script.text
+            assert 'document.createElement("strong")' in script.text
             assert "requestAnimationFrame" in script.text
             assert 'setAttribute("aria-busy", "true")' in script.text
             stylesheet = await client.get("/static/app.css")
