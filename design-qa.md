@@ -82,5 +82,7 @@
 - Fix: removed workspace borders, extended the workspace from the 91px header boundary to the viewport bottom, moved the sidebar to the left, and nested runtime observability under `메모리 / 실행 추적` sidebar tabs.
 - Interaction rule: `실행 추적` remains hidden before the first completed response, then appears and becomes the active sidebar view; the memory tab restores search and saved-memory management.
 - Responsive constraint: desktop uses a left sidebar and full-height chat; below 900px the DOM flow remains chat then memory to avoid a narrow fixed rail.
+- Live follow-up: response completion initially moved the root document by 251px when refocusing the composer. The desktop body is now fixed to the viewport, sidebar overflow is internal, and composer focus uses `preventScroll` so the 91px header boundary remains stationary.
+- User-message polish: removed the redundant `U` avatar while retaining the right-aligned bubble and `You` label.
 
 final result: passed

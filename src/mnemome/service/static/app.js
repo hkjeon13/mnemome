@@ -373,6 +373,7 @@ function renderAgentTrace(result) {
   elements.traceSection.classList.add("has-run");
   elements.traceTab.hidden = false;
   showSidebarView("trace");
+  elements.traceSection.scrollTop = 0;
 }
 
 function setChatBusy(busy) {
@@ -442,7 +443,7 @@ async function sendChat(query) {
   } finally {
     state.abortController = null;
     setChatBusy(false);
-    elements.chatInput.focus();
+    elements.chatInput.focus({ preventScroll: true });
   }
 }
 
