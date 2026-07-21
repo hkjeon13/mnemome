@@ -170,4 +170,23 @@
 - Console errors checked: no warning or error entries were observed on the local rendered page.
 - Remaining P0/P1/P2 findings: none.
 
+**Composer left padding and workspace proportion iteration**
+
+- Source visual truth: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-padding-qa/source.png`, captured from the deployed Playground before this scoped change.
+- Implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-padding-qa/local-final.jpg`.
+- Full-view comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-padding-qa/full-comparison.jpg` (source left, implementation right).
+- Focused region comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-composer-padding-qa/focused-comparison.jpg` (source top, implementation bottom).
+- Viewport: 1849 × 1232 CSS pixels.
+- State: initial Playground, seeded memories loaded, memory panel expanded, chat composer empty.
+- Earlier P2 findings: the textarea had `0px` left padding, leaving the hint too close to the inner edge; the desktop workspace used `1fr : 3fr`, measuring `462.25px 1386.75px` at this viewport rather than the newly requested `0.7fr : 3fr` tracks.
+- Fixes made: added `13px` left padding while retaining the existing 10.5px vertical padding, and changed the expanded desktop workspace to `minmax(21.25rem, 0.7fr) minmax(0, 3fr)`. The collapsed and compact responsive rules remain unchanged.
+- Post-fix metric evidence: textarea left padding is exactly `13px`; composer height remains 64px with a 50px radius; composer, textarea, and send-button centers remain identical at y=1172px; workspace tracks measure `349.805px 1499.2px` across 1849px.
+- Typography: font family, weight, size, line height, hierarchy, wrapping behavior, and copy remain unchanged.
+- Spacing and layout rhythm: only the requested textarea inset and expanded desktop workspace proportion changed; internal card spacing, header alignment, composer width, and bottom placement are unchanged.
+- Colors and visual tokens: no color, border, shadow, or state token changed.
+- Image quality and assets: no assets were added, removed, resized, or substituted.
+- Primary interaction tested: the textarea accepted and cleared text; its placeholder returned with the new inset and preserved vertical centering.
+- Console errors checked: no warning or error entries were observed on the local rendered page.
+- Remaining P0/P1/P2 findings: none.
+
 final result: passed
