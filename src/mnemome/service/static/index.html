@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-chat-canvas" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-sidebar-rail" />
   </head>
   <body>
     <header class="site-header">
@@ -81,6 +81,7 @@
         </article>
 
         <aside class="panel memory-panel">
+          <img class="collapsed-memory-mark" src="/static/favicon.svg" alt="" aria-hidden="true" />
           <div class="panel-heading">
             <div>
               <span class="panel-kicker">MEMORY VAULT</span>
@@ -94,7 +95,9 @@
                   <path d="M3 3v5h5" />
                 </svg>
               </button>
-              <button class="collapse-button" id="toggle-memory-panel" type="button" aria-expanded="true" aria-label="메모리 패널 접기">접기</button>
+              <button class="collapse-button" id="toggle-memory-panel" type="button" aria-expanded="true" aria-label="메모리 패널 접기" title="메모리 패널 접기">
+                <img src="/static/panel-left.svg" alt="" aria-hidden="true" />
+              </button>
             </div>
           </div>
 
@@ -197,6 +200,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-chat-canvas" defer></script>
+    <script src="/static/app.js?v=20260721-sidebar-rail" defer></script>
   </body>
 </html>

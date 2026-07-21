@@ -55,17 +55,22 @@ button { color: inherit; }
 main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64px; }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.9fr); min-height: 670px; overflow: hidden; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); transition: grid-template-columns 0.24s ease; }
-.workspace.memory-collapsed { grid-template-columns: minmax(0, 1fr) 68px; }
+.workspace.memory-collapsed { grid-template-columns: minmax(0, 1fr) 72px; }
 .panel { min-width: 0; padding: 28px; }
 .chat-panel { display: flex; flex-direction: column; min-height: 680px; padding-inline: clamp(28px, 5vw, 68px); border-right: 1px solid var(--line); background: #fff; }
 .memory-panel { display: flex; flex-direction: column; background: #fff; transition: padding 0.24s ease; }
-.memory-panel.is-collapsed { padding-inline: 12px; }
-.memory-panel.is-collapsed .panel-heading { justify-content: center; }
+.collapsed-memory-mark { display: none; }
+.memory-panel.is-collapsed { align-items: center; padding: 20px 10px; }
+.memory-panel.is-collapsed .collapsed-memory-mark { display: block; order: 0; width: 40px; height: 40px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 13px; filter: grayscale(1); }
+.memory-panel.is-collapsed .panel-heading { order: 2; margin: 0; }
 .memory-panel.is-collapsed .panel-heading > div:first-child,
-.memory-panel.is-collapsed .memory-actions > :not(.collapse-button),
-.memory-panel.is-collapsed .memory-toolbar,
 .memory-panel.is-collapsed .filter-tabs,
 .memory-panel.is-collapsed .memory-list { display: none; }
+.memory-panel.is-collapsed .memory-actions { flex-direction: column; }
+.memory-panel.is-collapsed .memory-toolbar { display: flex; order: 1; width: 40px; margin-bottom: 12px; }
+.memory-panel.is-collapsed .search-field { width: 40px; height: 40px; flex: 0 0 40px; justify-content: center; padding: 0; cursor: pointer; }
+.memory-panel.is-collapsed .search-field svg { width: 18px; }
+.memory-panel.is-collapsed .search-field input { display: none; }
 
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .panel-kicker { display: block; margin-bottom: 5px; color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.15em; }
@@ -116,23 +121,25 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64
 .clear-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .clear-button:hover:not(:disabled) { border-color: #999999; color: #222222; }
 .clear-button:disabled { opacity: 0.35; cursor: not-allowed; }
-.collapse-button { height: 38px; padding: 0 9px; border: 1px solid #d7d7d7; background: #fff; color: var(--muted); }
+.collapse-button { display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border: 1px solid #d7d7d7; background: #fff; color: var(--muted); }
+.collapse-button img { width: 17px; height: 17px; opacity: 0.68; }
+.memory-panel.is-collapsed .collapse-button img { transform: rotate(180deg); }
 .collapse-button:hover { border-color: #999; color: var(--text); }
 .filter-tabs { display: flex; gap: 3px; margin: 15px 0; padding-bottom: 12px; overflow-x: auto; border-bottom: 1px solid var(--line); }
 .filter-tabs button { padding: 6px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; white-space: nowrap; }
 .filter-tabs button.active { background: var(--mint-soft); color: var(--mint); }
 
 .memory-list { flex: 1; min-height: 0; max-height: 500px; padding-right: 5px; overflow-y: auto; scrollbar-color: #cccccc transparent; }
-.memory-card { position: relative; margin-bottom: 9px; padding: 14px 38px 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; transition: 0.2s ease; }
+.memory-card { position: relative; display: flex; height: 132px; flex-direction: column; margin-bottom: 9px; padding: 14px 38px 13px 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fff; transition: 0.2s ease; }
 .memory-card:hover { border-color: #c3c3c3; background: #fafafa; box-shadow: 0 5px 18px rgba(0, 0, 0, 0.05); }
-.memory-type { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.memory-type { display: inline-flex; width: fit-content; align-items: center; gap: 5px; margin-bottom: 7px; padding: 3px 6px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
 .memory-type::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.memory-type.fact { color: var(--mint); }
-.memory-type.preference { color: var(--blue); }
-.memory-type.episode { color: var(--amber); }
-.memory-type.conversation { color: #777777; }
+.memory-type.fact { background: #edf7f1; color: #2f7654; }
+.memory-type.preference { background: #eef4f9; color: #426b8d; }
+.memory-type.episode { background: #faf4e8; color: #946725; }
+.memory-type.conversation { background: #f4eff9; color: #76579b; }
 .memory-card p { display: -webkit-box; margin: 0; overflow: hidden; color: #3f3f3f; font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 9px; }
 .tag-row span { padding: 3px 6px; border-radius: 4px; background: #f1f1f1; color: #7a7a7a; font-size: 8px; }
 .delete-memory { position: absolute; top: 10px; right: 9px; width: 25px; height: 25px; border: 0; border-radius: 7px; background: transparent; color: #777777; font-size: 16px; cursor: pointer; }
 .delete-memory:hover { background: #eeeeee; color: var(--danger); }

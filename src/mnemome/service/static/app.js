@@ -10,6 +10,7 @@ const state = {
 const elements = {
   memoryList: document.querySelector("#memory-list"),
   memorySearch: document.querySelector("#memory-search"),
+  memorySearchField: document.querySelector(".search-field"),
   filterTabs: document.querySelector(".filter-tabs"),
   memoryDialog: document.querySelector("#memory-dialog"),
   openMemoryForm: document.querySelector("#open-memory-form"),
@@ -421,12 +422,21 @@ elements.filterTabs.addEventListener("click", (event) => {
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
 elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
-elements.toggleMemoryPanel.addEventListener("click", () => {
-  const collapsed = elements.memoryPanel.classList.toggle("is-collapsed");
+function setMemoryPanelCollapsed(collapsed) {
+  elements.memoryPanel.classList.toggle("is-collapsed", collapsed);
   elements.workspace.classList.toggle("memory-collapsed", collapsed);
-  elements.toggleMemoryPanel.textContent = collapsed ? "열기" : "접기";
   elements.toggleMemoryPanel.setAttribute("aria-expanded", String(!collapsed));
   elements.toggleMemoryPanel.setAttribute("aria-label", collapsed ? "메모리 패널 열기" : "메모리 패널 접기");
+  elements.toggleMemoryPanel.setAttribute("title", collapsed ? "메모리 패널 열기" : "메모리 패널 접기");
+}
+
+elements.toggleMemoryPanel.addEventListener("click", () => {
+  setMemoryPanelCollapsed(!elements.memoryPanel.classList.contains("is-collapsed"));
+});
+elements.memorySearchField.addEventListener("click", () => {
+  if (!elements.memoryPanel.classList.contains("is-collapsed")) return;
+  setMemoryPanelCollapsed(false);
+  window.requestAnimationFrame(() => elements.memorySearch.focus());
 });
 elements.memoryForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;

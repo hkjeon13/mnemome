@@ -126,7 +126,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "system-note" not in page.text
             assert 'id="trace-section"' in page.text
             assert 'id="trace-section" aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-chat-canvas" in page.text
+            assert "20260721-sidebar-rail" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-rotate-ccw" in page.text

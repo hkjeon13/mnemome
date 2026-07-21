@@ -45,4 +45,22 @@
 - [x] Remove the navigation container background.
 - [x] Verify desktop interaction and responsive CSS behavior.
 
+**Sidebar rail iteration**
+
+- Source visual truth: `/Users/psyche/Desktop/스크린샷 2026-07-21 오후 4.56.38.png`.
+- Implementation evidence: in-app browser capture at 1280 × 720 with the memory sidebar collapsed.
+- Earlier finding: the first collapse treatment left only a text button and did not preserve useful actions, which was a P2 mismatch against the icon-rail reference.
+- Fix: introduced a 72px monochrome rail with a product mark, search, add, reset, and panel-toggle controls; clicking search restores the expanded panel and focuses its input.
+- Post-fix evidence: computed rail width `72px`, workspace columns `1108px 72px`, all four rail actions visible, and search expansion returned `collapsed: false` with the search input focused.
+- Required fidelity surfaces: typography and product copy remain unchanged; rail spacing, grayscale tokens, vector icon quality, and expanded/collapsed hierarchy match the supplied sidebar pattern within the existing memory feature.
+- No P0/P1/P2 sidebar findings remain.
+
+**Memory card consistency iteration**
+
+- Source evidence: user annotations on conversation and episode cards in the deployed memory list.
+- Earlier finding: variable copy length produced visibly different card heights and the monochrome type labels were too weak to scan; this was a P2 hierarchy mismatch.
+- Fix: standardized every memory card to 132px with clamped copy and bottom-aligned tags, then added restrained green, blue, amber, and violet tints to the four memory-type labels.
+- Post-fix target: equal card rhythm regardless of memory kind, with color limited to compact semantic labels.
+- No remaining P0/P1/P2 finding is expected in this scoped card treatment; browser verification is recorded in the final deployment pass.
+
 final result: passed
