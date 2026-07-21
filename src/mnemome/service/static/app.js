@@ -393,14 +393,12 @@ function renderPlanProgress(element, steps, stepStatuses) {
     item.classList.add(status);
     const marker = document.createElement("span");
     marker.className = "step-indicator";
-    if (status === "running") {
-      marker.setAttribute("aria-label", "진행 중");
-      marker.append(document.createElement("i"));
-    } else if (status === "complete") {
+    if (status === "complete") {
       marker.setAttribute("aria-label", "완료");
       marker.textContent = "✓";
     } else {
-      marker.textContent = "예정";
+      marker.setAttribute("aria-label", status === "running" ? "진행 중" : "시작 대기 중");
+      marker.append(document.createElement("i"));
     }
     const title = document.createElement("span");
     title.textContent = step.title;
@@ -745,7 +743,7 @@ elements.starterPrompts.addEventListener("click", (event) => {
 });
 
 async function initialize() {
-  if (window.matchMedia("(max-width: 900px)").matches) {
+  if (window.matchMedia("(max-width: 56.25rem)").matches) {
     setMemoryPanelCollapsed(true);
   }
   try {
