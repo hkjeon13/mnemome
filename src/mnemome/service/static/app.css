@@ -77,7 +77,8 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64
 .panel-heading h2, .dialog-heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.03em; }
 
 .conversation { flex: 1; min-height: 0; max-height: 510px; padding: 30px 0 24px; overflow-y: auto; scrollbar-color: #cccccc transparent; }
-.message { display: flex; width: min(100%, 800px); align-items: flex-start; gap: 12px; margin: 0 auto 28px; }
+.message { display: flex; width: min(100%, 800px); align-items: flex-start; gap: 12px; margin: 0 auto 44px; }
+.conversation > .message:first-child { margin-bottom: 18px; }
 .message.user-message { flex-direction: row-reverse; }
 .avatar { display: grid; flex: 0 0 auto; place-items: center; width: 31px; height: 31px; border: 1px solid #d5d5d5; border-radius: 10px; background: var(--mint-soft); color: var(--mint); font-size: 11px; font-weight: 800; }
 .user-message .avatar { border-color: #d5d5d5; background: #f1f1f1; color: var(--blue); }
@@ -87,13 +88,15 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64
 .message-author { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
 .user-message .message-author { text-align: right; }
 .message-body p { margin: 0; padding: 1px 0; border: 0; background: transparent; color: var(--text); font-size: 14px; line-height: 1.72; overflow-wrap: anywhere; white-space: pre-wrap; }
+.message-body p a { color: #426b8d; font-weight: 650; text-decoration-color: #a8bfd1; text-underline-offset: 3px; }
+.message-body p a:hover { color: #294f70; text-decoration-color: currentColor; }
 .user-message .message-body p { padding: 12px 14px; border: 1px solid #d9d9d9; border-radius: 16px 5px 16px 16px; background: #f2f2f2; }
 .message-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .message-meta span { padding: 4px 7px; border-radius: 5px; background: #f1f1f1; color: #777777; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; }
 .typing p::after { content: ""; display: inline-block; width: 1.8em; height: 0.8em; margin-left: 4px; background: radial-gradient(circle, var(--mint) 2px, transparent 3px) 0 50% / 0.6em 100%; animation: typing 1s steps(3) infinite; }
 @keyframes typing { to { background-position: 1.8em 50%; } }
 
-.starter-prompts { display: flex; width: min(100%, 800px); flex-wrap: wrap; gap: 7px; margin: 0 auto; }
+.starter-prompts { display: flex; width: min(100%, 800px); flex-wrap: wrap; gap: 7px; margin: 0 auto 44px; }
 .starter-prompts button { padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; transition: 0.2s ease; }
 .starter-prompts button:hover { border-color: #bdbdbd; color: var(--text); background: var(--mint-soft); transform: translateY(-1px); }
 

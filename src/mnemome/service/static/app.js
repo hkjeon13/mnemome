@@ -245,6 +245,40 @@ function appendMessageMeta(message, meta) {
   body.append(metadata);
 }
 
+function sourceLabel(urlValue) {
+  try {
+    const host = new URL(urlValue).hostname.replace(/^www\./, "");
+    const knownSources = [
+      ["nvidia.com", "NVIDIA 보도자료"],
+      ["reuters.com", "Reuters 기사"],
+      ["bloomberg.com", "Bloomberg 기사"],
+      ["yna.co.kr", "연합뉴스 기사"],
+      ["news.naver.com", "네이버 뉴스"],
+    ];
+    return knownSources.find(([domain]) => host.endsWith(domain))?.[1] || `${host} 출처`;
+  } catch {
+    return "출처 보기";
+  }
+}
+
+function renderAnswerLinks(element, text) {
+  element.replaceChildren();
+  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    element.append(document.createTextNode(text.slice(cursor, match.index)));
+    const url = match[2] || match[3];
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = match[1] || sourceLabel(url);
+    element.append(link);
+    cursor = match.index + match[0].length;
+  }
+  element.append(document.createTextNode(text.slice(cursor)));
+}
+
 function compactMs(value) {
   if (value === null || value === undefined) return "";
   return `${Number(value).toLocaleString("ko-KR")} ms`;
@@ -385,6 +419,7 @@ async function sendChat(query) {
     if (!result) throw new Error("완료되지 않은 응답 스트림입니다.");
     responseMessage.classList.remove("typing");
     if (!receivedDelta) responseText.textContent = result.answer;
+    renderAnswerLinks(responseText, result.answer || responseText.textContent);
     appendMessageMeta(responseMessage, [
       `${result.runtime}`,
       `recall ${result.recalled.length}`,

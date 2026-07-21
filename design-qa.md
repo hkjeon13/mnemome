@@ -63,4 +63,16 @@
 - Post-fix target: equal card rhythm regardless of memory kind, with color limited to compact semantic labels.
 - No remaining P0/P1/P2 finding is expected in this scoped card treatment; browser verification is recorded in the final deployment pass.
 
+**Conversation rhythm iteration**
+
+- Source evidence: user annotation on the live conversation canvas showing adjacent user and Agent turns reading as one block.
+- Fix: retained an 18px gap inside the onboarding group, then applied 44px after the example prompts and between subsequent message turns.
+- Expected result: onboarding copy and prompt chips remain cohesive while every real user/Agent exchange has a distinct vertical beat.
+
+**Answer link treatment**
+
+- Source evidence: user annotation on live news answers where long raw URLs dominated the response hierarchy.
+- Fix: Agent instructions now require descriptive Markdown links, and the client safely renders both Markdown links and any fallback raw URLs as labeled anchors after streaming completes.
+- Visual result: source labels use the same restrained blue family as semantic memory accents and open in a new tab with `noopener noreferrer`.
+
 final result: passed
