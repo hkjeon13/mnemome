@@ -124,7 +124,11 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding-bottom: 64
 .search-field { display: flex; flex: 1; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(6, 14, 12, 0.46); }
 .search-field svg { width: 14px; fill: none; stroke: var(--muted); stroke-width: 1.6; }
 .search-field input { width: 100%; padding: 10px 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 12px; }
-.add-button { padding: 0 12px; border: 1px solid rgba(131, 244, 189, 0.22); border-radius: 10px; background: var(--mint-soft); color: var(--mint); font-size: 11px; font-weight: 700; cursor: pointer; }
+.add-button, .clear-button { padding: 0 12px; border-radius: 10px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.add-button { border: 1px solid rgba(131, 244, 189, 0.22); background: var(--mint-soft); color: var(--mint); }
+.clear-button { border: 1px solid rgba(255, 154, 150, 0.18); background: rgba(255, 154, 150, 0.06); color: #d8a09d; }
+.clear-button:hover:not(:disabled) { border-color: rgba(255, 154, 150, 0.38); color: var(--danger); }
+.clear-button:disabled { opacity: 0.35; cursor: not-allowed; }
 .filter-tabs { display: flex; gap: 3px; margin: 15px 0; padding-bottom: 12px; overflow-x: auto; border-bottom: 1px solid var(--line); }
 .filter-tabs button { padding: 6px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; white-space: nowrap; }
 .filter-tabs button.active { background: var(--mint-soft); color: var(--mint); }
@@ -143,6 +147,8 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding-bottom: 64
 .tag-row span { padding: 3px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.04); color: #728a84; font-size: 8px; }
 .delete-memory { position: absolute; top: 10px; right: 9px; width: 25px; height: 25px; border: 0; border-radius: 7px; background: transparent; color: #657872; font-size: 16px; cursor: pointer; }
 .delete-memory:hover { background: rgba(255, 154, 150, 0.1); color: var(--danger); }
+.memory-card.seeded { border-color: rgba(131, 244, 189, 0.13); }
+.seed-badge { position: absolute; top: 12px; right: 11px; padding: 4px 6px; border-radius: 5px; background: rgba(131, 244, 189, 0.08); color: #70988a; font-size: 8px; font-weight: 700; }
 .empty-state { display: grid; place-items: center; min-height: 220px; padding: 30px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.7; }
 
 .trace-section { margin-top: 18px; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: rgba(8, 17, 15, 0.74); box-shadow: var(--shadow); }
@@ -224,6 +230,8 @@ dialog::backdrop { background: rgba(2, 8, 7, 0.7); backdrop-filter: blur(7px); }
   .hero-flow i { margin-top: 17px; }
   .workspace { border-radius: 18px; }
   .panel { padding: 20px 16px; }
+  .memory-toolbar { flex-wrap: wrap; }
+  .memory-toolbar .search-field { flex-basis: 100%; }
   .chat-panel { min-height: 590px; }
   .conversation { max-height: 440px; }
   .starter-prompts { padding-left: 0; }

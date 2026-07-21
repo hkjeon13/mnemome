@@ -107,7 +107,12 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
         "created_at": fact.created_at,
         "source_count": len(fact.sources),
         "metadata": fact.metadata,
+        "is_seed": bool(fact.metadata.get("seeded")),
     }
+
+
+def _is_seed_memory(fact: Any) -> bool:
+    return bool(fact.metadata.get("seeded"))
 
 
 def _workflow_trace(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -350,7 +355,12 @@ def build_demo_router() -> APIRouter:
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
         memories = await application.list_facts(tenant_id, kind=kind, limit=100)
-        return {"items": [_memory_payload(memory) for memory in memories]}
+        clearable_count = sum(not _is_seed_memory(memory) for memory in memories)
+        return {
+            "items": [_memory_payload(memory) for memory in memories],
+            "seeded_count": len(memories) - clearable_count,
+            "clearable_count": clearable_count,
+        }
 
     @router.post("/demo/api/memories", status_code=201)
     async def create_memory(
@@ -383,8 +393,25 @@ def build_demo_router() -> APIRouter:
         session_id, tenant_id = _session(request, response)
         await limiter.check(session_id)
         application = request.app.state.application
+        memories = await application.list_facts(tenant_id, limit=100)
+        target = next((memory for memory in memories if memory.fact_id == memory_id), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail="기억을 찾을 수 없습니다.")
+        if _is_seed_memory(target):
+            raise HTTPException(status_code=409, detail="기본 샘플 기억은 유지됩니다.")
         await application.suppress_fact(tenant_id, memory_id)
         return {"deleted": True}
+
+    @router.delete("/demo/api/memories")
+    async def clear_memories(request: Request, response: Response) -> dict[str, int]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        application = request.app.state.application
+        memories = await application.list_facts(tenant_id, limit=100)
+        clearable = [memory for memory in memories if not _is_seed_memory(memory)]
+        for memory in clearable:
+            await application.suppress_fact(tenant_id, memory.fact_id)
+        return {"cleared": len(clearable), "preserved": len(memories) - len(clearable)}
 
     @router.post("/demo/api/chat")
     async def chat(

@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-trace" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-clear" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -114,6 +114,7 @@
               <input id="memory-search" type="search" placeholder="메모리 검색" />
             </label>
             <button class="add-button" id="open-memory-form" type="button">+ 기억 추가</button>
+            <button class="clear-button" id="clear-session-memories" type="button">기록 비우기</button>
           </div>
 
           <div class="filter-tabs" role="tablist" aria-label="메모리 유형">
@@ -220,6 +221,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-trace" defer></script>
+    <script src="/static/app.js?v=20260721-clear" defer></script>
   </body>
 </html>

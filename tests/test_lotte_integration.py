@@ -85,6 +85,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "Mnemome · Agent Memory Lab" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
+            assert "기록 비우기" in page.text
 
             status = await client.get("/demo/api/status")
             assert status.status_code == 200
@@ -119,12 +120,27 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert preference_response.json()["preference_captured"] is True
 
             memories = await client.get("/demo/api/memories")
+            assert memories.json()["seeded_count"] == 3
+            assert memories.json()["clearable_count"] >= 3
             kinds = [item["kind"] for item in memories.json()["items"]]
             assert "conversation" in kinds
             preferences = [
                 item for item in memories.json()["items"] if item["kind"] == "preference"
             ]
             assert any(item["content"] == preference_text for item in preferences)
+
+            seeded = next(item for item in memories.json()["items"] if item["is_seed"])
+            protected = await client.delete(f"/demo/api/memories/{seeded['id']}")
+            assert protected.status_code == 409
+
+            cleared = await client.delete("/demo/api/memories")
+            assert cleared.status_code == 200
+            assert cleared.json()["cleared"] >= 3
+            assert cleared.json()["preserved"] == 3
+            remaining = await client.get("/demo/api/memories")
+            assert remaining.json()["clearable_count"] == 0
+            assert len(remaining.json()["items"]) == 3
+            assert all(item["is_seed"] for item in remaining.json()["items"])
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="https://another.test"

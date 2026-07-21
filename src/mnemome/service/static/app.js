@@ -1,4 +1,4 @@
-const state = { memories: [], kind: "", query: "", busy: false };
+const state = { memories: [], kind: "", query: "", busy: false, clearableCount: 0 };
 
 const elements = {
   runtimeStatus: document.querySelector("[data-testid='runtime-status']"),
@@ -9,6 +9,7 @@ const elements = {
   filterTabs: document.querySelector(".filter-tabs"),
   memoryDialog: document.querySelector("#memory-dialog"),
   openMemoryForm: document.querySelector("#open-memory-form"),
+  clearSessionMemories: document.querySelector("#clear-session-memories"),
   memoryForm: document.querySelector("#memory-form"),
   memoryKind: document.querySelector("#memory-kind"),
   memoryContent: document.querySelector("#memory-content"),
@@ -76,7 +77,7 @@ function renderMemories() {
 
   for (const memory of filtered) {
     const card = document.createElement("article");
-    card.className = "memory-card";
+    card.className = `memory-card${memory.is_seed ? " seeded" : ""}`;
     card.dataset.memoryId = memory.id;
 
     const type = document.createElement("span");
@@ -96,15 +97,21 @@ function renderMemories() {
       tags.append(chip);
     }
 
-    const remove = document.createElement("button");
-    remove.className = "delete-memory";
-    remove.type = "button";
-    remove.title = "기억 비활성화";
-    remove.setAttribute("aria-label", "기억 비활성화");
-    remove.textContent = "×";
-    remove.addEventListener("click", () => deleteMemory(memory.id));
-
-    card.append(type, content, tags, remove);
+    if (memory.is_seed) {
+      const seed = document.createElement("span");
+      seed.className = "seed-badge";
+      seed.textContent = "기본 샘플";
+      card.append(type, content, tags, seed);
+    } else {
+      const remove = document.createElement("button");
+      remove.className = "delete-memory";
+      remove.type = "button";
+      remove.title = "기억 비활성화";
+      remove.setAttribute("aria-label", "기억 비활성화");
+      remove.textContent = "×";
+      remove.addEventListener("click", () => deleteMemory(memory.id));
+      card.append(type, content, tags, remove);
+    }
     elements.memoryList.append(card);
   }
 }
@@ -112,6 +119,11 @@ function renderMemories() {
 async function loadMemories() {
   const payload = await api("/demo/api/memories");
   state.memories = payload.items;
+  state.clearableCount = payload.clearable_count || 0;
+  elements.clearSessionMemories.disabled = state.clearableCount === 0;
+  elements.clearSessionMemories.title = state.clearableCount
+    ? `현재 세션의 사용자 기억 ${state.clearableCount}개 비우기`
+    : "비울 사용자 기억이 없습니다";
   renderMemories();
 }
 
@@ -135,6 +147,23 @@ async function deleteMemory(memoryId) {
     await loadMemories();
     showToast("기억을 비활성화했습니다.");
   } catch (error) { showToast(error.message, "error"); }
+}
+
+async function clearSessionMemories() {
+  if (!state.clearableCount) return;
+  const confirmed = window.confirm(
+    `현재 브라우저 세션에서 생성된 기억 ${state.clearableCount}개를 비울까요? 기본 샘플 3개는 유지됩니다.`,
+  );
+  if (!confirmed) return;
+  elements.clearSessionMemories.disabled = true;
+  try {
+    const result = await api("/demo/api/memories", { method: "DELETE" });
+    await loadMemories();
+    showToast(`사용자 기억 ${result.cleared}개를 비웠습니다. 기본 샘플은 유지됩니다.`);
+  } catch (error) {
+    showToast(error.message, "error");
+    elements.clearSessionMemories.disabled = false;
+  }
 }
 
 function appendMessage(role, text, meta = []) {
@@ -294,6 +323,7 @@ elements.filterTabs.addEventListener("click", (event) => {
 });
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
+elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
 elements.memoryForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();

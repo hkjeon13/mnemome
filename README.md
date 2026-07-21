@@ -78,6 +78,9 @@ search or suppress them, and ask a Lotte Agent runtime to use recalled memories.
 Successful Agent output is stored back as a conversation memory.
 Persistent instructions expressed with markers such as `앞으로` or `항상` are
 also promoted to preference memories and injected into every later run.
+The memory vault marks the three built-in samples as protected. A browser can
+clear every user-created and Agent-generated memory in its own isolated demo
+tenant without affecting those samples or any other browser session.
 
 The integration uses `MnemomeLongTermMemory`, an adapter for Lotte Agent's
 public `LongTermMemory` protocol. The public demo uses Lotte Agent's real

@@ -43,6 +43,9 @@ The demo enables Lotte Agent workflow tracking for each chat run. Only a
 sanitized plan/step summary is returned to the browser; prompt and output
 previews remain server-local. Cultural memory is reported as unconfigured until
 a real cultural snapshot provider replaces the `csp_none_*` placeholder.
+The bulk-clear demo endpoint suppresses only non-seeded memories belonging to
+the current cookie-scoped tenant. Seed memories and other sessions are never
+targets of that operation.
 
 ## Upgrade and rollback
 
