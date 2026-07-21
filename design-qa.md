@@ -91,4 +91,9 @@
 - Fix: removed the `AGENT PLAYGROUND / 기억 기반 대화` heading and reduced the collapsed sidebar to one borderless expand control.
 - Expected result: the chat opens directly into conversation content, while the 56px collapsed rail presents one unambiguous action.
 
+**Conversation label refinement**
+
+- Source evidence: user annotation on the `CONVERSATION · 대화` type label identified its tinted fill as unnecessary.
+- Fix: removed the label background while retaining the restrained violet text and semantic dot.
+
 final result: passed

@@ -151,7 +151,7 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 64
 .memory-type.fact { background: #edf7f1; color: #2f7654; }
 .memory-type.preference { background: #eef4f9; color: #426b8d; }
 .memory-type.episode { background: #faf4e8; color: #946725; }
-.memory-type.conversation { background: #f4eff9; color: #76579b; }
+.memory-type.conversation { background: transparent; color: #76579b; }
 .memory-card p { display: -webkit-box; margin: 0; overflow: hidden; color: #3f3f3f; font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 9px; }
 .tag-row span { padding: 3px 6px; border-radius: 4px; background: #f1f1f1; color: #7a7a7a; font-size: 8px; }
