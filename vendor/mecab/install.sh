@@ -21,6 +21,7 @@ ldconfig
 
 tar --extract --gzip --file "$dictionary_archive"
 pushd mecab-ko-dic-2.1.1-20180720
+autoreconf --force --install
 ./configure --with-mecab-config=/usr/local/bin/mecab-config
 make --jobs="$(nproc)"
 make install
