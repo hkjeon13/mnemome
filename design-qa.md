@@ -76,4 +76,11 @@
 - Visual result: source labels use the same restrained blue family as semantic memory accents and open in a new tab with `noopener noreferrer`.
 - Public verification: the deployed news request rendered a `로이터` anchor rather than the raw Reuters URL; its link opened with `target="_blank"` and `rel="noopener noreferrer"`. The final three message margins were `18px`, `44px`, and `44px`, confirming onboarding and conversation rhythm.
 
+**Full-height workspace and sidebar trace iteration**
+
+- Source evidence: user annotation on the body showing the header divider and workspace border as a doubled line, plus the former trace cards below the chat viewport.
+- Fix: removed workspace borders, extended the workspace from the 91px header boundary to the viewport bottom, moved the sidebar to the left, and nested runtime observability under `메모리 / 실행 추적` sidebar tabs.
+- Interaction rule: `실행 추적` remains hidden before the first completed response, then appears and becomes the active sidebar view; the memory tab restores search and saved-memory management.
+- Responsive constraint: desktop uses a left sidebar and full-height chat; below 900px the DOM flow remains chat then memory to avoid a narrow fixed rail.
+
 final result: passed

@@ -9,9 +9,9 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-conversation-rhythm" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-sidebar-trace" />
   </head>
-  <body>
+  <body class="playground-body">
     <header class="site-header">
       <a class="brand" href="/playground" aria-label="Mnemome Playground">
         <span class="brand-mark" aria-hidden="true">
@@ -101,64 +101,70 @@
             </div>
           </div>
 
-          <div class="memory-toolbar">
-            <label class="search-field">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5" /><path d="m13 13 4 4" /></svg>
-              <span class="sr-only">메모리 검색</span>
-              <input id="memory-search" type="search" placeholder="메모리 검색" />
-            </label>
+          <div class="sidebar-tabs" role="tablist" aria-label="사이드바 보기">
+            <button class="active" id="memory-view-tab" data-sidebar-view="memory" type="button" role="tab" aria-selected="true" aria-controls="memory-view">메모리</button>
+            <button id="trace-view-tab" data-sidebar-view="trace" type="button" role="tab" aria-selected="false" aria-controls="trace-section" hidden>실행 추적</button>
           </div>
 
-          <div class="filter-tabs" role="tablist" aria-label="메모리 유형">
-            <button class="active" data-kind="" type="button">전체</button>
-            <button data-kind="fact" type="button">사실</button>
-            <button data-kind="preference" type="button">선호</button>
-            <button data-kind="episode" type="button">경험</button>
-            <button data-kind="conversation" type="button">대화</button>
-          </div>
+          <section class="sidebar-view memory-view" id="memory-view" role="tabpanel" aria-labelledby="memory-view-tab">
+            <div class="memory-toolbar">
+              <label class="search-field">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5" /><path d="m13 13 4 4" /></svg>
+                <span class="sr-only">메모리 검색</span>
+                <input id="memory-search" type="search" placeholder="메모리 검색" />
+              </label>
+            </div>
 
-          <div class="memory-list" id="memory-list" aria-live="polite"></div>
+            <div class="filter-tabs" role="tablist" aria-label="메모리 유형">
+              <button class="active" data-kind="" type="button">전체</button>
+              <button data-kind="fact" type="button">사실</button>
+              <button data-kind="preference" type="button">선호</button>
+              <button data-kind="episode" type="button">경험</button>
+              <button data-kind="conversation" type="button">대화</button>
+            </div>
+
+            <div class="memory-list" id="memory-list" aria-live="polite"></div>
+          </section>
+
+          <section class="trace-section sidebar-view" id="trace-section" role="tabpanel" aria-labelledby="trace-view-tab" aria-label="Agent 실행 및 메모리 추적" hidden>
+            <div class="trace-section-heading">
+              <div>
+                <span class="panel-kicker">RUNTIME OBSERVABILITY</span>
+                <h2>Agent 실행 경로</h2>
+              </div>
+              <span class="trace-run-id" id="trace-run-id">실행 대기 중</span>
+            </div>
+
+            <div class="trace-grid">
+              <article class="trace-card execution-card">
+                <div class="trace-card-heading">
+                  <div>
+                    <span>LOTTE AGENT TRACE</span>
+                    <h3>Plan &amp; Steps</h3>
+                  </div>
+                  <span class="trace-summary" id="trace-summary">아직 실행 기록이 없습니다</span>
+                </div>
+                <div class="step-list" id="execution-steps">
+                  <div class="trace-empty">질문을 보내면 실제 plan 제목과 중간 step이 표시됩니다.</div>
+                </div>
+              </article>
+
+              <article class="trace-card memory-route-card">
+                <div class="trace-card-heading">
+                  <div>
+                    <span>MEMORY ROUTES</span>
+                    <h3>메모리 적용 지점</h3>
+                  </div>
+                  <span class="trace-summary">Long · Short · Cultural</span>
+                </div>
+                <div class="memory-routes" id="memory-routes">
+                  <div class="trace-empty">실행 후 각 메모리 계층의 적용 여부와 범위를 표시합니다.</div>
+                </div>
+              </article>
+            </div>
+          </section>
         </aside>
       </section>
-
-      <section class="trace-section" id="trace-section" aria-label="Agent 실행 및 메모리 추적" hidden>
-        <div class="trace-section-heading">
-          <div>
-            <span class="panel-kicker">RUNTIME OBSERVABILITY</span>
-            <h2>Agent가 생각하고 기억을 적용한 경로</h2>
-          </div>
-          <span class="trace-run-id" id="trace-run-id">실행 대기 중</span>
-        </div>
-
-        <div class="trace-grid">
-          <article class="trace-card execution-card">
-            <div class="trace-card-heading">
-              <div>
-                <span>LOTTE AGENT TRACE</span>
-                <h3>Plan &amp; Steps</h3>
-              </div>
-              <span class="trace-summary" id="trace-summary">아직 실행 기록이 없습니다</span>
-            </div>
-            <div class="step-list" id="execution-steps">
-              <div class="trace-empty">질문을 보내면 실제 plan 제목과 중간 step이 여기에 표시됩니다.</div>
-            </div>
-          </article>
-
-          <article class="trace-card memory-route-card">
-            <div class="trace-card-heading">
-              <div>
-                <span>MEMORY ROUTES</span>
-                <h3>메모리 적용 지점</h3>
-              </div>
-              <span class="trace-summary">Long · Short · Cultural</span>
-            </div>
-            <div class="memory-routes" id="memory-routes">
-              <div class="trace-empty">실행 후 각 메모리 계층의 적용 여부와 범위를 표시합니다.</div>
-            </div>
-          </article>
-        </div>
-      </section>
-
     </main>
 
     <dialog id="memory-dialog">
@@ -200,6 +206,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-conversation-rhythm" defer></script>
+    <script src="/static/app.js?v=20260721-sidebar-trace" defer></script>
   </body>
 </html>

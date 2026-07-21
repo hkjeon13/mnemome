@@ -12,6 +12,9 @@ const elements = {
   memorySearch: document.querySelector("#memory-search"),
   memorySearchField: document.querySelector(".search-field"),
   filterTabs: document.querySelector(".filter-tabs"),
+  sidebarTabs: document.querySelector(".sidebar-tabs"),
+  memoryView: document.querySelector("#memory-view"),
+  traceTab: document.querySelector("#trace-view-tab"),
   memoryDialog: document.querySelector("#memory-dialog"),
   openMemoryForm: document.querySelector("#open-memory-form"),
   clearSessionMemories: document.querySelector("#clear-session-memories"),
@@ -368,7 +371,8 @@ function renderAgentTrace(result) {
     elements.memoryRoutes.append(card);
   }
   elements.traceSection.classList.add("has-run");
-  elements.traceSection.hidden = false;
+  elements.traceTab.hidden = false;
+  showSidebarView("trace");
 }
 
 function setChatBusy(busy) {
@@ -457,6 +461,23 @@ elements.filterTabs.addEventListener("click", (event) => {
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
 elements.clearSessionMemories.addEventListener("click", clearSessionMemories);
+function showSidebarView(view) {
+  const traceActive = view === "trace" && !elements.traceTab.hidden;
+  elements.memoryView.hidden = traceActive;
+  elements.traceSection.hidden = !traceActive;
+  elements.memoryPanel.classList.toggle("trace-active", traceActive);
+  for (const tab of elements.sidebarTabs.querySelectorAll("button[data-sidebar-view]")) {
+    const selected = tab.dataset.sidebarView === (traceActive ? "trace" : "memory");
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  }
+}
+
+elements.sidebarTabs.addEventListener("click", (event) => {
+  const tab = event.target.closest("button[data-sidebar-view]");
+  if (tab && !tab.hidden) showSidebarView(tab.dataset.sidebarView);
+});
+
 function setMemoryPanelCollapsed(collapsed) {
   elements.memoryPanel.classList.toggle("is-collapsed", collapsed);
   elements.workspace.classList.toggle("memory-collapsed", collapsed);
@@ -471,6 +492,7 @@ elements.toggleMemoryPanel.addEventListener("click", () => {
 elements.memorySearchField.addEventListener("click", () => {
   if (!elements.memoryPanel.classList.contains("is-collapsed")) return;
   setMemoryPanelCollapsed(false);
+  showSidebarView("memory");
   window.requestAnimationFrame(() => elements.memorySearch.focus());
 });
 elements.memoryForm.addEventListener("submit", async (event) => {
