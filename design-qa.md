@@ -204,4 +204,18 @@
 - Automated checks: JavaScript syntax, `git diff --check`, Ruff, and the nine tests not requiring the private Lotte runtime passed. The Lotte integration module could not collect locally because `lotte_agent` is not installed; the production image installed the authorized wheel successfully.
 - Remaining P0/P1/P2 findings: none.
 
+**Mobile trace-card long identifier wrapping iteration**
+
+- Source visual truth: `/tmp/codex-remote-attachments/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/69fbf787-0c8d-46b9-8e9e-4ccb77c6c3e8/1-Photo-1.jpg`, supplied from the deployed Playground on a mobile device.
+- Local implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-trace-wrap-qa/local-fixed.jpg`.
+- Focused comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-trace-wrap-qa/focused-comparison.jpg` (source top, implementation bottom).
+- Viewport evidence: the supplied source is a 597 × 1280 physical-pixel mobile capture; local responsive verification used a 390 × 844 CSS-pixel viewport. Because the source includes mobile browser chrome and a populated live execution, the focused CULTURE-card region was used for the visual comparison.
+- Earlier P2 finding: the unbroken `csp_019f84081042ee4685b490` trace identifier extended beyond the CULTURE card's right edge.
+- Fix made: allowed the execution/route content grid item to shrink with `min-width: 0`, then applied emergency wrapping to its monospace metadata span with `overflow-wrap: anywhere` and a `word-break: break-word` fallback. The card width, responsive grid tracks, and card spacing are unchanged.
+- Post-fix metric evidence: at 390 CSS pixels the test card measured 161px wide; the card and metadata span each reported equal `scrollWidth` and `clientWidth`, and the overflow check returned false.
+- Responsive scope: the rule is valid at all breakpoints but only changes rendering when a metadata token is too long for its existing content column; ordinary spaced metadata remains unchanged.
+- Typography, colors, assets, and copy: existing font, size, color, border, radius, copy, and responsive card design are unchanged.
+- Console errors checked: no warning or error entries were observed on the local rendered page.
+- Remaining P0/P1/P2 findings: none.
+
 final result: passed
