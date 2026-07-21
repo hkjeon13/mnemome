@@ -132,4 +132,24 @@
 - Fix: replaced it with the existing Lucide trash visual language and renamed the accessible action to `사용자 기억 삭제`.
 - Confirmation: a dedicated modal now states the exact user-memory count, preserves the three seed samples, and warns that deletion cannot be undone before the destructive request runs.
 
+**Header padding and 3:7 workspace iteration**
+
+- Source visual truth: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-layout-qa/source-production.png`, captured from the deployed Playground before this scoped change.
+- Implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-layout-qa/local-implementation.png`.
+- Full-view comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-layout-qa/before-after-comparison.png`.
+- Focused region comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-layout-qa/header-sidebar-comparison.png`.
+- Viewport: 1619 × 1232 CSS pixels.
+- State: initial Playground, seeded memories loaded, memory panel expanded, trace hidden.
+- Earlier P2 findings: the header used a centered 1180px container, placing the brand and navigation 219.5px from the outer edges; the workspace used a 37.5:62.5 split (`607.117px 1011.88px`) rather than the requested 3:7 ratio.
+- Fixes made: changed desktop header horizontal padding to 28px on both sides and changed the expanded workspace tracks to `minmax(21.25rem, 3fr) minmax(0, 7fr)`. The existing compact responsive rules remain unchanged.
+- Post-fix visual evidence: the brand begins at x=28px, the navigation ends at x=1591px, and the expanded sidebar/body tracks measure `485.695px 1133.3px`, exactly 30% and 70% of the 1619px workspace.
+- Typography: font family, weight, size, hierarchy, and wrapping are unchanged from the existing product system.
+- Spacing and layout rhythm: only the annotated outer header padding and major workspace split changed; internal panel padding, card rhythm, chat centering, and composer position remain unchanged.
+- Colors and visual tokens: no color, border, shadow, or state token changed.
+- Image quality and assets: no raster or vector assets were added, removed, resized, or substituted; existing brand and control icons remain crisp.
+- Copy and content: all product-specific labels, seeded memories, and navigation copy are unchanged.
+- Primary interactions tested: the Playground loaded with the memory panel expanded and seeded memories visible; existing navigation and controls remained present.
+- Console errors checked: no warning or error entries were observed on the local rendered page.
+- Remaining P0/P1/P2 findings: none.
+
 final result: passed
