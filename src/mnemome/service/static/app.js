@@ -376,7 +376,11 @@ function renderAnswerLinks(element, text) {
   element.append(document.createTextNode(text.slice(cursor)));
 }
 
-function renderPlanProgress(element, steps, activeStep) {
+function planStepKey(step) {
+  return step.index === null || step.index === undefined ? step.title : String(step.index);
+}
+
+function renderPlanProgress(element, steps, stepStatuses) {
   element.replaceChildren();
   element.removeAttribute("aria-label");
   element.className = "plan-progress";
@@ -385,12 +389,19 @@ function renderPlanProgress(element, steps, activeStep) {
   const list = document.createElement("ol");
   for (const step of steps) {
     const item = document.createElement("li");
-    const isActive =
-      (activeStep.index !== null && String(step.index) === String(activeStep.index)) ||
-      (activeStep.title && step.title === activeStep.title);
-    item.classList.toggle("active", Boolean(isActive));
+    const status = stepStatuses.get(planStepKey(step)) || "pending";
+    item.classList.add(status);
     const marker = document.createElement("span");
-    marker.textContent = isActive ? "진행 중" : "예정";
+    marker.className = "step-indicator";
+    if (status === "running") {
+      marker.setAttribute("aria-label", "진행 중");
+      marker.append(document.createElement("i"));
+    } else if (status === "complete") {
+      marker.setAttribute("aria-label", "완료");
+      marker.textContent = "✓";
+    } else {
+      marker.textContent = "예정";
+    }
     const title = document.createElement("span");
     title.textContent = step.title;
     item.append(marker, title);
@@ -546,7 +557,7 @@ async function sendChat(query) {
   let receivedDelta = false;
   let result = null;
   let plannedSteps = [];
-  let activeStep = { index: null, title: "" };
+  let stepStatuses = new Map();
   try {
     await streamApi(
       "/demo/api/chat/stream",
@@ -559,12 +570,24 @@ async function sendChat(query) {
         if (event === "progress") {
           if (payload.kind === "plan" && Array.isArray(payload.steps)) {
             plannedSteps = payload.steps;
-            activeStep = { index: null, title: "" };
+            stepStatuses = new Map();
             responseMessage.classList.remove("typing");
-            renderPlanProgress(responseText, plannedSteps, activeStep);
+            renderPlanProgress(responseText, plannedSteps, stepStatuses);
           } else if (payload.kind === "step_start" && plannedSteps.length) {
-            activeStep = { index: payload.index ?? null, title: payload.title || "" };
-            renderPlanProgress(responseText, plannedSteps, activeStep);
+            for (const [key, status] of stepStatuses) {
+              if (status === "running") stepStatuses.set(key, "complete");
+            }
+            const step = plannedSteps.find((candidate) =>
+              (payload.index !== null && payload.index !== undefined &&
+                String(candidate.index) === String(payload.index)) ||
+              (payload.title && candidate.title === payload.title));
+            if (step) stepStatuses.set(planStepKey(step), "running");
+            renderPlanProgress(responseText, plannedSteps, stepStatuses);
+          } else if (payload.kind === "step_complete" && plannedSteps.length) {
+            const step = plannedSteps.find((candidate) =>
+              String(candidate.index) === String(payload.index));
+            if (step) stepStatuses.set(planStepKey(step), "complete");
+            renderPlanProgress(responseText, plannedSteps, stepStatuses);
           }
           elements.conversation.scrollTop = elements.conversation.scrollHeight;
         } else if (event === "delta") {

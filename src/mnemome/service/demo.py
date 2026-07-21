@@ -492,6 +492,18 @@ async def _run_lotte_agent(
                                 "title": str(chunk.title)[:240],
                             }
                         )
+                    elif (
+                        stream_progress is not None
+                        and chunk.type == "text"
+                        and chunk.is_last_chunk
+                        and chunk.finish_reason != "error"
+                    ):
+                        await stream_progress(
+                            {
+                                "kind": "step_complete",
+                                "index": chunk.index,
+                            }
+                        )
                     delta = chunk.delta_text if chunk.type == "text" else ""
                     if not delta or not chunk.is_last_step:
                         continue

@@ -132,7 +132,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-plan-progress-dots" in page.text
+            assert "20260721-plan-step-status" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -193,6 +193,15 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert progress_payload["kind"] == "plan"
             assert progress_payload["steps"]
             assert progress_payload["steps"][0]["title"]
+            progress_payloads = [
+                json.loads(line.removeprefix("data: "))
+                for block in streamed.text.split("\n\n")
+                if block.startswith("event: progress")
+                for line in block.splitlines()
+                if line.startswith("data: ")
+            ]
+            progress_kinds = {payload["kind"] for payload in progress_payloads}
+            assert {"plan", "step_start", "step_complete"} <= progress_kinds
             complete_line = next(
                 line
                 for block in streamed.text.split("\n\n")
