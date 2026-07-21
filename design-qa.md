@@ -208,14 +208,16 @@
 
 - Source visual truth: `/tmp/codex-remote-attachments/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/69fbf787-0c8d-46b9-8e9e-4ccb77c6c3e8/1-Photo-1.jpg`, supplied from the deployed Playground on a mobile device.
 - Local implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-trace-wrap-qa/local-fixed.jpg`.
+- Production implementation screenshot: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-trace-wrap-qa/production-culture-card.jpg`, captured from a new live run after deployment.
 - Focused comparison evidence: `/Users/psyche/.codex/visualizations/2026/07/21/019f848e-14c2-7cc3-92e5-c1b77c9fc3a3/mnemome-trace-wrap-qa/focused-comparison.jpg` (source top, implementation bottom).
 - Viewport evidence: the supplied source is a 597 × 1280 physical-pixel mobile capture; local responsive verification used a 390 × 844 CSS-pixel viewport. Because the source includes mobile browser chrome and a populated live execution, the focused CULTURE-card region was used for the visual comparison.
 - Earlier P2 finding: the unbroken `csp_019f84081042ee4685b490` trace identifier extended beyond the CULTURE card's right edge.
 - Fix made: allowed the execution/route content grid item to shrink with `min-width: 0`, then applied emergency wrapping to its monospace metadata span with `overflow-wrap: anywhere` and a `word-break: break-word` fallback. The card width, responsive grid tracks, and card spacing are unchanged.
 - Post-fix metric evidence: at 390 CSS pixels the test card measured 161px wide; the card and metadata span each reported equal `scrollWidth` and `clientWidth`, and the overflow check returned false.
+- Production metric evidence: the live CULTURE card again measured 161px wide; its metadata column measured 79px with `scrollWidth === clientWidth`, computed `overflow-wrap: anywhere`, and no horizontal overflow. The live identifier wrapped to three lines inside the card.
 - Responsive scope: the rule is valid at all breakpoints but only changes rendering when a metadata token is too long for its existing content column; ordinary spaced metadata remains unchanged.
 - Typography, colors, assets, and copy: existing font, size, color, border, radius, copy, and responsive card design are unchanged.
-- Console errors checked: no warning or error entries were observed on the local rendered page.
+- Console errors checked: no warning or error entries were observed on either the local rendered page or deployed live-run verification.
 - Remaining P0/P1/P2 findings: none.
 
 final result: passed
