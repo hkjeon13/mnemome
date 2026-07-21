@@ -189,4 +189,19 @@
 - Console errors checked: no warning or error entries were observed on the local rendered page.
 - Remaining P0/P1/P2 findings: none.
 
+**Real-time streaming link rendering iteration**
+
+- Source behavior: streamed deltas were appended with `textContent`, so every Markdown link remained raw until the final `complete` event.
+- Implementation behavior: accumulated source text is rendered at most once per animation frame; completed Markdown links become anchors immediately while the currently incomplete link tail remains text until its closing delimiter arrives.
+- Production verification URL: `https://mnemome.fin-ally.net/playground?deploy=3343639`.
+- Production state: a live NVIDIA news request produced three Markdown source links over SSE.
+- Intermediate evidence: while the response message still had `aria-busy="true"`, the first two completed sources were already anchors and the third incomplete `[Benzinga Korea](https://...)` tail remained plain text. When its closing `)` arrived, the third anchor appeared before the response completed.
+- Final evidence: all three anchors retained their labels, HTTP(S) destinations, `target="_blank"`, and `rel="noopener noreferrer"`; `aria-busy` cleared on completion.
+- Security and source labeling: unsafe schemes remain text-only, and known-source labels now require an exact hostname or a dot-delimited subdomain rather than a raw suffix match.
+- Typography, spacing, colors, image assets, and copy: unchanged; the existing link style and message layout are reused.
+- Error-state evidence: the local no-runtime response removed typing and `aria-busy`, restored the send-button label, and displayed its error without console warnings or errors.
+- Console errors checked: no warning or error entries were observed in either local or production browser verification.
+- Automated checks: JavaScript syntax, `git diff --check`, Ruff, and the nine tests not requiring the private Lotte runtime passed. The Lotte integration module could not collect locally because `lotte_agent` is not installed; the production image installed the authorized wheel successfully.
+- Remaining P0/P1/P2 findings: none.
+
 final result: passed
