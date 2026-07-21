@@ -7,6 +7,8 @@ from .contracts import (
     AgentEvent,
     AgentRun,
     Checkpoint,
+    CulturalArtifact,
+    CulturalSnapshot,
     DomainEvent,
     MemoryFact,
 )
@@ -36,6 +38,28 @@ class Stores(Protocol):
     async def get_fact(self, tenant_id: str, fact_id: str) -> MemoryFact | None: ...
 
     async def list_facts(self, tenant_id: str) -> list[MemoryFact]: ...
+
+    async def save_cultural_artifact(self, artifact: CulturalArtifact) -> None: ...
+
+    async def get_cultural_artifact(
+        self, tenant_id: str, artifact_id: str
+    ) -> CulturalArtifact | None: ...
+
+    async def list_cultural_artifacts(
+        self, tenant_id: str, scope: str | None = None
+    ) -> list[CulturalArtifact]: ...
+
+    async def save_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None: ...
+
+    async def get_cultural_snapshot(
+        self, tenant_id: str, snapshot_id: str
+    ) -> CulturalSnapshot | None: ...
+
+    async def get_active_cultural_snapshot(
+        self, tenant_id: str, scope: str
+    ) -> CulturalSnapshot | None: ...
+
+    async def activate_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None: ...
 
     async def append_domain_event(self, event: DomainEvent) -> None: ...
 

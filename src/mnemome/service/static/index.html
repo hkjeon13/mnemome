@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-memory-delete-confirm" />
+    <link rel="stylesheet" href="/static/app.css?v=20260721-cultural-memory" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -108,6 +108,7 @@
 
           <div class="sidebar-tabs" role="tablist" aria-label="사이드바 보기">
             <button class="active" id="memory-view-tab" data-sidebar-view="memory" type="button" role="tab" aria-selected="true" aria-controls="memory-view">메모리</button>
+            <button id="culture-view-tab" data-sidebar-view="culture" type="button" role="tab" aria-selected="false" aria-controls="culture-view">문화</button>
             <button id="trace-view-tab" data-sidebar-view="trace" type="button" role="tab" aria-selected="false" aria-controls="trace-section" hidden>실행 추적</button>
           </div>
 
@@ -129,6 +130,21 @@
             </div>
 
             <div class="memory-list" id="memory-list" aria-live="polite"></div>
+          </section>
+
+          <section class="sidebar-view culture-view" id="culture-view" role="tabpanel" aria-labelledby="culture-view-tab" hidden>
+            <div class="culture-heading">
+              <div>
+                <span class="panel-kicker">CULTURAL MEMORY</span>
+                <h2>공유 응답 원칙</h2>
+              </div>
+              <span class="read-only-badge">읽기 전용</span>
+            </div>
+            <p class="culture-description">
+              서버가 게시한 문화적 스냅샷입니다. 이 데모에서는 모든 Agent 실행에 고정되며 사용자가 수정하거나 삭제할 수 없습니다.
+            </p>
+            <div class="culture-snapshot-meta" id="culture-snapshot-meta">스냅샷을 불러오는 중입니다.</div>
+            <div class="culture-list" id="culture-list" aria-live="polite"></div>
           </section>
 
           <section class="trace-section sidebar-view" id="trace-section" role="tabpanel" aria-labelledby="trace-view-tab" aria-label="Agent 실행 및 메모리 추적" hidden>
@@ -250,6 +266,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260721-memory-delete-confirm" defer></script>
+    <script src="/static/app.js?v=20260721-cultural-memory" defer></script>
   </body>
 </html>

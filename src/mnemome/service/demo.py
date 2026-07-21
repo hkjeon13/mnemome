@@ -113,6 +113,79 @@ async def _seed_memories(application: Any, tenant_id: str) -> None:
         )
 
 
+async def _seed_cultural_memory(application: Any, tenant_id: str) -> None:
+    snapshot, _ = await application.resolve_cultural_snapshot(tenant_id, "default")
+    if snapshot is not None:
+        return
+    samples = (
+        {
+            "claim": (
+                "독도 관련 질문에는 대한민국 정부의 공식 입장과 실효적 지배 사실을 먼저 "
+                "명확히 설명하고, 단순히 '분쟁지역'이라고 규정하지 않는다."
+            ),
+            "conditions": ("독도, 영유권, 한일 관계에 관한 질문",),
+            "restrictions": (
+                "사용자 질문에 직접 답하지 않고 과거 답변을 그대로 반복하지 않는다.",
+                "일본의 주장을 대한민국의 공식 입장과 동등한 확정 사실로 표현하지 않는다.",
+            ),
+            "recovery": "불확실한 세부 사실은 공식 자료나 최신 출처를 확인해 구분해서 설명한다.",
+            "metadata": {"seeded": True, "read_only": True, "label": "독도 응답 원칙"},
+        },
+        {
+            "claim": (
+                "과거 대화 기억은 사용자 맥락과 선호를 위한 것이며 최신 뉴스나 현재 사실의 "
+                "근거를 대체하지 않는다. 시의성이 필요한 질문은 검색 도구로 새로 확인한다."
+            ),
+            "conditions": ("뉴스, 최신, 최근, 오늘, 현재 등 시의성 있는 정보 요청",),
+            "restrictions": ("저장된 과거 Agent 답변을 현재 사실처럼 재사용하지 않는다.",),
+            "recovery": (
+                "검색이 불가능하면 확인 한계를 밝히고 기억만으로 최신 사실을 단정하지 않는다."
+            ),
+            "metadata": {"seeded": True, "read_only": True, "label": "최신성 검증 원칙"},
+        },
+    )
+    for sample in samples:
+        await application.create_cultural_artifact(
+            tenant_id,
+            "default",
+            sample["claim"],
+            conditions=sample["conditions"],
+            restrictions=sample["restrictions"],
+            recovery=sample["recovery"],
+            evidence_refs=(SourceRef("demo_policy", "mnemome_culture_v1"),),
+            metadata=sample["metadata"],
+        )
+    await application.publish_cultural_snapshot(
+        tenant_id, "default", policy_version="mnemome-demo-culture-v1"
+    )
+
+
+def _cultural_payload(snapshot: Any, artifacts: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "snapshot": {
+            "id": snapshot.snapshot_id,
+            "scope": snapshot.scope,
+            "version": snapshot.version,
+            "policy_version": snapshot.policy_version,
+            "content_digest": snapshot.content_digest,
+            "created_at": snapshot.created_at,
+            "read_only": True,
+        },
+        "items": [
+            {
+                "id": artifact.artifact_id,
+                "version": artifact.version,
+                "claim": artifact.claim,
+                "conditions": list(artifact.conditions),
+                "restrictions": list(artifact.restrictions),
+                "recovery": artifact.recovery,
+                "read_only": True,
+            }
+            for artifact in artifacts
+        ],
+    }
+
+
 def _conversation_query(fact: Any) -> str | None:
     if fact.kind != "conversation":
         return None
@@ -248,6 +321,7 @@ async def _run_lotte_agent(
     tenant_id: str,
     query: str,
     run_id: str,
+    cultural_artifacts: tuple[Any, ...] = (),
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
 ) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
@@ -305,6 +379,15 @@ async def _run_lotte_agent(
         )
     else:
         memory_context = "- 관련 장기 기억 없음"
+    cultural_context = "\n".join(
+        (
+            f"- 원칙: {artifact.claim}\n"
+            f"  적용 조건: {', '.join(artifact.conditions) or '항상'}\n"
+            f"  금지/주의: {', '.join(artifact.restrictions) or '없음'}\n"
+            f"  복구: {artifact.recovery or '해당 없음'}"
+        )
+        for artifact in cultural_artifacts
+    ) or "- 적용할 문화적 기억 없음"
     needs_fresh_search = _needs_fresh_search(query)
     search_instruction = (
         "이 질문은 최신 정보 요청입니다. 반드시 search_retrieve를 domain='news', "
@@ -326,6 +409,8 @@ async def _run_lotte_agent(
         "출처 링크는 원문 URL을 그대로 노출하지 말고 "
         "[매체명 또는 문서 제목](URL) 형식의 설명형 Markdown 링크로 작성하세요.\n\n"
         f"{search_instruction}"
+        "[문화적 기억 - 이 실행에 고정된 응답 원칙]\n"
+        f"{cultural_context}\n\n"
         f"[Mnemome 장기 기억]\n{memory_context}\n\n"
         f"[사용자 질문]\n{query}"
     )
@@ -428,12 +513,13 @@ async def _execute_demo_chat(
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     await _seed_memories(application, tenant_id)
+    await _seed_cultural_memory(application, tenant_id)
     agent = await application.register_agent(
         tenant_id,
         "Mnemome Memory Guide",
         ("memory.read", "memory.write", "lotte-agent.runtime"),
     )
-    run, _context = await application.open_run(
+    run, context = await application.open_run(
         OpenRunRequest(
             tenant_id=tenant_id,
             agent_id=agent.agent_id,
@@ -455,6 +541,7 @@ async def _execute_demo_chat(
             tenant_id,
             query,
             run.run_id,
+            context.cultural_artifacts,
             stream_delta=stream_delta,
         )
         completed = await application.complete_run(
@@ -502,15 +589,19 @@ async def _execute_demo_chat(
                 "scope": completed.run_id,
             },
             "cultural": {
-                "status": "not_configured"
-                if completed.cultural_snapshot_id.startswith("csp_none_")
-                else "applied",
-                "count": 0,
+                "status": "applied" if context.cultural_artifacts else "not_configured",
+                "count": len(context.cultural_artifacts),
                 "label": "문화적 기억",
-                "detail": "현재 데모에는 문화적 메모리 공급자가 연결되지 않았습니다."
-                if completed.cultural_snapshot_id.startswith("csp_none_")
-                else "문화적 스냅샷을 Agent 실행에 고정했습니다.",
+                "detail": (
+                    "서버가 관리하는 읽기 전용 문화적 스냅샷을 Agent 실행에 고정했습니다."
+                    if context.cultural_artifacts
+                    else "이 scope에 게시된 문화적 스냅샷이 없습니다."
+                ),
                 "snapshot_id": completed.cultural_snapshot_id,
+                "scope": "default",
+                "artifact_ids": [
+                    artifact.artifact_id for artifact in context.cultural_artifacts
+                ],
             },
         },
         "recalled": [
@@ -554,6 +645,7 @@ def build_demo_router() -> APIRouter:
         await limiter.check(session_id)
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
+        await _seed_cultural_memory(application, tenant_id)
         memories = await application.list_facts(tenant_id, limit=100)
         try:
             import lotte_agent
@@ -574,7 +666,21 @@ def build_demo_router() -> APIRouter:
             "storage": "mnemome-sqlite",
             "memory_count": len(memories),
             "mcp_configured": bool(_mcp_settings()[0]),
+            "cultural_memory_configured": True,
         }
+
+    @router.get("/demo/api/cultural-snapshot")
+    async def cultural_snapshot(request: Request, response: Response) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        application = request.app.state.application
+        await _seed_cultural_memory(application, tenant_id)
+        snapshot, artifacts = await application.resolve_cultural_snapshot(
+            tenant_id, "default"
+        )
+        if snapshot is None:
+            raise HTTPException(status_code=503, detail="문화적 메모리 스냅샷이 없습니다.")
+        return _cultural_payload(snapshot, artifacts)
 
     @router.get("/demo/api/memories")
     async def list_memories(

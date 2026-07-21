@@ -124,3 +124,80 @@ class MnemomeClient:
         response = await self._client.post(f"/v1/memory-facts/{fact_id}:suppress")
         response.raise_for_status()
         return response.json()
+
+    async def create_cultural_artifact(
+        self,
+        claim: str,
+        *,
+        scope: str = "default",
+        conditions: list[str] | None = None,
+        restrictions: list[str] | None = None,
+        recovery: str | None = None,
+        evidence_refs: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            "/v1/cultural-artifacts",
+            json={
+                "scope": scope,
+                "claim": claim,
+                "conditions": conditions or [],
+                "restrictions": restrictions or [],
+                "recovery": recovery,
+                "evidence_refs": evidence_refs or [],
+                "metadata": metadata or {},
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def list_cultural_artifacts(
+        self, *, scope: str | None = None, include_withdrawn: bool = False
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"include_withdrawn": include_withdrawn}
+        if scope:
+            params["scope"] = scope
+        response = await self._client.get("/v1/cultural-artifacts", params=params)
+        response.raise_for_status()
+        return response.json()["items"]
+
+    async def revise_cultural_artifact(
+        self, artifact_id: str, **changes: Any
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            f"/v1/cultural-artifacts/{artifact_id}:revise", json=changes
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def withdraw_cultural_artifact(self, artifact_id: str) -> dict[str, Any]:
+        response = await self._client.post(
+            f"/v1/cultural-artifacts/{artifact_id}:withdraw"
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def publish_cultural_snapshot(
+        self,
+        *,
+        scope: str = "default",
+        artifact_ids: list[str] | None = None,
+        policy_version: str = "culture-policy-v1",
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            "/v1/cultural-snapshots:publish",
+            json={
+                "scope": scope,
+                "artifact_ids": artifact_ids,
+                "policy_version": policy_version,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def resolve_cultural_snapshot(self, scope: str = "default") -> dict[str, Any]:
+        response = await self._client.get(
+            "/v1/cultural-snapshots:resolve", params={"scope": scope}
+        )
+        response.raise_for_status()
+        return response.json()

@@ -10,13 +10,25 @@ from mnemome.service.settings import ApiPrincipal, Settings
 
 @pytest.fixture
 def settings() -> Settings:
-    roles = frozenset({"agent", "memory:read", "memory:write"})
+    roles = frozenset(
+        {
+            "agent",
+            "memory:read",
+            "memory:write",
+            "culture:read",
+            "culture:write",
+            "culture:publish",
+        }
+    )
     return Settings(
         environment="test",
         database_path=":memory:",
         api_keys={
             "key-a": ApiPrincipal("tenant-a", "principal-a", roles),
             "key-b": ApiPrincipal("tenant-b", "principal-b", roles),
+            "key-memory-only": ApiPrincipal(
+                "tenant-a", "principal-limited", frozenset({"memory:read"})
+            ),
         },
         log_level="WARNING",
     )
@@ -122,3 +134,40 @@ async def test_service_end_to_end_and_tenant_isolation(settings: Settings) -> No
             replay = await client.get(f"/v1/runs/{run_id}/events", headers=headers_a)
             assert replay.status_code == 200
             assert "agent.event.recorded" in replay.text
+
+            cultural = await client.post(
+                "/v1/cultural-artifacts",
+                headers=headers_a,
+                json={
+                    "scope": "default",
+                    "claim": "Latest claims require fresh evidence.",
+                    "conditions": ["fresh information request"],
+                    "restrictions": ["Do not reuse stale answers."],
+                },
+            )
+            assert cultural.status_code == 201
+            forbidden = await client.post(
+                "/v1/cultural-artifacts",
+                headers={"Authorization": "Bearer key-memory-only"},
+                json={"scope": "default", "claim": "Must not be created"},
+            )
+            assert forbidden.status_code == 403
+            artifact_id = cultural.json()["artifact_id"]
+            published = await client.post(
+                "/v1/cultural-snapshots:publish",
+                headers=headers_a,
+                json={"scope": "default", "artifact_ids": [artifact_id]},
+            )
+            assert published.status_code == 201
+            resolved = await client.get(
+                "/v1/cultural-snapshots:resolve",
+                headers=headers_a,
+                params={"scope": "default"},
+            )
+            assert resolved.json()["artifacts"][0]["claim"].startswith("Latest claims")
+            isolated = await client.get(
+                "/v1/cultural-snapshots:resolve",
+                headers=headers_b,
+                params={"scope": "default"},
+            )
+            assert isolated.json() == {"snapshot": None, "artifacts": []}

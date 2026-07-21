@@ -7,6 +7,8 @@ from ..contracts import (
     AgentEvent,
     AgentRun,
     Checkpoint,
+    CulturalArtifact,
+    CulturalSnapshot,
     DomainEvent,
     MemoryFact,
 )
@@ -22,6 +24,9 @@ class InMemoryStores:
         self._events: dict[tuple[str, str], list[AgentEvent]] = {}
         self._checkpoints: dict[tuple[str, str], Checkpoint] = {}
         self._facts: dict[tuple[str, str], MemoryFact] = {}
+        self._cultural_artifacts: dict[tuple[str, str], CulturalArtifact] = {}
+        self._cultural_snapshots: dict[tuple[str, str], CulturalSnapshot] = {}
+        self._active_cultural_snapshots: dict[tuple[str, str], str] = {}
         self.domain_events: list[DomainEvent] = []
 
     async def initialize(self) -> None:
@@ -67,6 +72,46 @@ class InMemoryStores:
 
     async def list_facts(self, tenant_id: str) -> list[MemoryFact]:
         return [fact for (owner, _), fact in self._facts.items() if owner == tenant_id]
+
+    async def save_cultural_artifact(self, artifact: CulturalArtifact) -> None:
+        async with self._lock:
+            self._cultural_artifacts[(artifact.tenant_id, artifact.artifact_id)] = artifact
+
+    async def get_cultural_artifact(
+        self, tenant_id: str, artifact_id: str
+    ) -> CulturalArtifact | None:
+        return self._cultural_artifacts.get((tenant_id, artifact_id))
+
+    async def list_cultural_artifacts(
+        self, tenant_id: str, scope: str | None = None
+    ) -> list[CulturalArtifact]:
+        return [
+            artifact
+            for (owner, _), artifact in self._cultural_artifacts.items()
+            if owner == tenant_id and (scope is None or artifact.scope == scope)
+        ]
+
+    async def save_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None:
+        async with self._lock:
+            self._cultural_snapshots[(snapshot.tenant_id, snapshot.snapshot_id)] = snapshot
+
+    async def get_cultural_snapshot(
+        self, tenant_id: str, snapshot_id: str
+    ) -> CulturalSnapshot | None:
+        return self._cultural_snapshots.get((tenant_id, snapshot_id))
+
+    async def get_active_cultural_snapshot(
+        self, tenant_id: str, scope: str
+    ) -> CulturalSnapshot | None:
+        snapshot_id = self._active_cultural_snapshots.get((tenant_id, scope))
+        return self._cultural_snapshots.get((tenant_id, snapshot_id)) if snapshot_id else None
+
+    async def activate_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None:
+        async with self._lock:
+            self._cultural_snapshots[(snapshot.tenant_id, snapshot.snapshot_id)] = snapshot
+            self._active_cultural_snapshots[
+                (snapshot.tenant_id, snapshot.scope)
+            ] = snapshot.snapshot_id
 
     async def append_domain_event(self, event: DomainEvent) -> None:
         async with self._lock:

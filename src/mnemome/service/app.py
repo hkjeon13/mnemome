@@ -22,9 +22,12 @@ from .schemas import (
     CompleteRunBody,
     CorrectFactBody,
     CreateFactBody,
+    CulturalArtifactBody,
     FailRunBody,
     OpenRunBody,
+    PublishCulturalSnapshotBody,
     RegisterAgentBody,
+    ReviseCulturalArtifactBody,
 )
 from .settings import ApiPrincipal, Settings
 
@@ -96,6 +99,9 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
     AgentPrincipal = Annotated[ApiPrincipal, Depends(require("agent"))]
     MemoryReader = Annotated[ApiPrincipal, Depends(require("memory:read"))]
     MemoryWriter = Annotated[ApiPrincipal, Depends(require("memory:write"))]
+    CultureReader = Annotated[ApiPrincipal, Depends(require("culture:read"))]
+    CultureWriter = Annotated[ApiPrincipal, Depends(require("culture:write"))]
+    CulturePublisher = Annotated[ApiPrincipal, Depends(require("culture:publish"))]
 
     @app.get("/health", tags=["operations"])
     async def health() -> dict[str, str]:
@@ -279,5 +285,105 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
     @app.post("/v1/memory-facts/{fact_id}:suppress", tags=["memory"])
     async def suppress_fact(fact_id: str, identity: MemoryWriter) -> JSONResponse:
         return _response(await application.suppress_fact(identity.tenant_id, fact_id))
+
+    @app.get("/v1/cultural-artifacts", tags=["culture"])
+    async def list_cultural_artifacts(
+        identity: CultureReader,
+        scope: Annotated[str | None, Query(max_length=200)] = None,
+        include_withdrawn: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "items": await application.list_cultural_artifacts(
+                identity.tenant_id,
+                scope=scope,
+                include_withdrawn=include_withdrawn,
+            )
+        }
+
+    @app.post("/v1/cultural-artifacts", status_code=201, tags=["culture"])
+    async def create_cultural_artifact(
+        body: CulturalArtifactBody, identity: CultureWriter
+    ) -> JSONResponse:
+        artifact = await application.create_cultural_artifact(
+            identity.tenant_id,
+            body.scope,
+            body.claim,
+            conditions=tuple(body.conditions),
+            restrictions=tuple(body.restrictions),
+            recovery=body.recovery,
+            evidence_refs=tuple(
+                SourceRef(**source.model_dump()) for source in body.evidence_refs
+            ),
+            metadata=body.metadata,
+        )
+        return _response(artifact, status_code=201)
+
+    @app.get("/v1/cultural-artifacts/{artifact_id}", tags=["culture"])
+    async def get_cultural_artifact(
+        artifact_id: str, identity: CultureReader
+    ) -> JSONResponse:
+        return _response(
+            await application.get_cultural_artifact(identity.tenant_id, artifact_id)
+        )
+
+    @app.post(
+        "/v1/cultural-artifacts/{artifact_id}:revise", status_code=201, tags=["culture"]
+    )
+    async def revise_cultural_artifact(
+        artifact_id: str,
+        body: ReviseCulturalArtifactBody,
+        identity: CultureWriter,
+    ) -> JSONResponse:
+        artifact = await application.revise_cultural_artifact(
+            identity.tenant_id,
+            artifact_id,
+            claim=body.claim,
+            conditions=tuple(body.conditions),
+            restrictions=tuple(body.restrictions),
+            recovery=body.recovery,
+            evidence_refs=tuple(
+                SourceRef(**source.model_dump()) for source in body.evidence_refs
+            ),
+            metadata=body.metadata,
+        )
+        return _response(artifact, status_code=201)
+
+    @app.post("/v1/cultural-artifacts/{artifact_id}:withdraw", tags=["culture"])
+    async def withdraw_cultural_artifact(
+        artifact_id: str, identity: CultureWriter
+    ) -> JSONResponse:
+        return _response(
+            await application.withdraw_cultural_artifact(identity.tenant_id, artifact_id)
+        )
+
+    @app.post("/v1/cultural-snapshots:publish", status_code=201, tags=["culture"])
+    async def publish_cultural_snapshot(
+        body: PublishCulturalSnapshotBody, identity: CulturePublisher
+    ) -> JSONResponse:
+        snapshot = await application.publish_cultural_snapshot(
+            identity.tenant_id,
+            body.scope,
+            artifact_ids=(tuple(body.artifact_ids) if body.artifact_ids is not None else None),
+            policy_version=body.policy_version,
+        )
+        return _response(snapshot, status_code=201)
+
+    @app.get("/v1/cultural-snapshots:resolve", tags=["culture"])
+    async def resolve_cultural_snapshot(
+        identity: CultureReader,
+        scope: Annotated[str, Query(min_length=1, max_length=200)] = "default",
+    ) -> JSONResponse:
+        snapshot, artifacts = await application.resolve_cultural_snapshot(
+            identity.tenant_id, scope
+        )
+        return _response({"snapshot": snapshot, "artifacts": artifacts})
+
+    @app.get("/v1/cultural-snapshots/{snapshot_id}", tags=["culture"])
+    async def get_cultural_snapshot(
+        snapshot_id: str, identity: CultureReader
+    ) -> JSONResponse:
+        return _response(
+            await application.get_cultural_snapshot(identity.tenant_id, snapshot_id)
+        )
 
     return app

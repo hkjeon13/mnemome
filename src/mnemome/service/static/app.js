@@ -8,6 +8,8 @@ const state = {
   abortController: null,
   isComposing: false,
   submitAfterComposition: false,
+  culturalSnapshot: null,
+  culturalArtifacts: [],
 };
 
 const elements = {
@@ -17,6 +19,9 @@ const elements = {
   filterTabs: document.querySelector(".filter-tabs"),
   sidebarTabs: document.querySelector(".sidebar-tabs"),
   memoryView: document.querySelector("#memory-view"),
+  cultureView: document.querySelector("#culture-view"),
+  cultureList: document.querySelector("#culture-list"),
+  cultureSnapshotMeta: document.querySelector("#culture-snapshot-meta"),
   traceTab: document.querySelector("#trace-view-tab"),
   memoryDialog: document.querySelector("#memory-dialog"),
   newConversationDialog: document.querySelector("#new-conversation-dialog"),
@@ -201,6 +206,48 @@ async function loadMemories() {
     ? `현재 세션의 사용자 기억 ${state.clearableCount}개 비우기`
     : "비울 사용자 기억이 없습니다";
   renderMemories();
+}
+
+function renderCulturalMemory() {
+  elements.cultureList.replaceChildren();
+  const snapshot = state.culturalSnapshot;
+  if (!snapshot) {
+    elements.cultureSnapshotMeta.textContent = "게시된 문화적 스냅샷이 없습니다.";
+    return;
+  }
+  elements.cultureSnapshotMeta.textContent =
+    `Snapshot v${snapshot.version} · ${snapshot.scope} · ${snapshot.policy_version}`;
+  for (const artifact of state.culturalArtifacts) {
+    const card = document.createElement("article");
+    card.className = "culture-card";
+    const label = document.createElement("span");
+    label.className = "culture-card-label";
+    label.textContent = `CULTURE · v${artifact.version}`;
+    const claim = document.createElement("p");
+    claim.className = "culture-claim";
+    claim.textContent = artifact.claim;
+    card.append(label, claim);
+    if (artifact.conditions?.length) {
+      const condition = document.createElement("p");
+      condition.className = "culture-detail";
+      condition.textContent = `적용 조건 · ${artifact.conditions.join(" · ")}`;
+      card.append(condition);
+    }
+    if (artifact.restrictions?.length) {
+      const restriction = document.createElement("p");
+      restriction.className = "culture-detail restriction";
+      restriction.textContent = `주의 · ${artifact.restrictions.join(" · ")}`;
+      card.append(restriction);
+    }
+    elements.cultureList.append(card);
+  }
+}
+
+async function loadCulturalMemory() {
+  const payload = await api("/demo/api/cultural-snapshot");
+  state.culturalSnapshot = payload.snapshot;
+  state.culturalArtifacts = payload.items || [];
+  renderCulturalMemory();
 }
 
 async function createMemory() {
@@ -548,11 +595,15 @@ elements.clearMemoriesDialog.addEventListener("close", () => {
 });
 function showSidebarView(view) {
   const traceActive = view === "trace" && !elements.traceTab.hidden;
-  elements.memoryView.hidden = traceActive;
+  const cultureActive = view === "culture";
+  elements.memoryView.hidden = traceActive || cultureActive;
+  elements.cultureView.hidden = !cultureActive;
   elements.traceSection.hidden = !traceActive;
   elements.memoryPanel.classList.toggle("trace-active", traceActive);
+  elements.memoryPanel.classList.toggle("culture-active", cultureActive);
+  const activeView = traceActive ? "trace" : cultureActive ? "culture" : "memory";
   for (const tab of elements.sidebarTabs.querySelectorAll("button[data-sidebar-view]")) {
-    const selected = tab.dataset.sidebarView === (traceActive ? "trace" : "memory");
+    const selected = tab.dataset.sidebarView === activeView;
     tab.classList.toggle("active", selected);
     tab.setAttribute("aria-selected", String(selected));
   }
@@ -631,7 +682,7 @@ elements.starterPrompts.addEventListener("click", (event) => {
 
 async function initialize() {
   try {
-    await loadMemories();
+    await Promise.all([loadMemories(), loadCulturalMemory()]);
   } catch (error) {
     showToast(error.message, "error");
   }

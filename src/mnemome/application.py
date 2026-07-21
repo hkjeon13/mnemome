@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -10,12 +12,16 @@ from .contracts import (
     AgentRun,
     Checkpoint,
     ContextBundle,
+    CulturalArtifact,
+    CulturalArtifactStatus,
+    CulturalSnapshot,
     DomainEvent,
     FactInput,
     FactStatus,
     MemoryFact,
     OpenRunRequest,
     RecalledFact,
+    ResolvedCulturalArtifact,
     RunStatus,
     SourceRef,
     utc_now,
@@ -81,6 +87,9 @@ class MnemomeApplication:
             if request.recall and request.retrieval_text
             else ()
         )
+        snapshot, cultural_artifacts = await self.resolve_cultural_snapshot(
+            request.tenant_id, request.cultural_scope
+        )
         now = utc_now()
         run = AgentRun(
             run_id=self.ids.new("run"),
@@ -89,7 +98,11 @@ class MnemomeApplication:
             agent_descriptor_version=agent.version,
             status=RunStatus.ACTIVE,
             context_version=1,
-            cultural_snapshot_id=f"csp_none_{request.cultural_scope.replace('/', '_')}",
+            cultural_snapshot_id=(
+                snapshot.snapshot_id
+                if snapshot is not None
+                else f"csp_none_{request.cultural_scope.replace('/', '_')}"
+            ),
             workspace_id=request.workspace_id,
             query_ref=request.query_ref,
             write_episode=request.write_episode,
@@ -102,6 +115,7 @@ class MnemomeApplication:
             cultural_snapshot_id=run.cultural_snapshot_id,
             recalled_facts=recalled,
             created_at=now,
+            cultural_artifacts=cultural_artifacts,
         )
         await self.stores.save_run(run)
         await self._emit(
@@ -396,6 +410,239 @@ class MnemomeApplication:
             )
         ranked.sort(key=lambda item: (item.score, item.confidence), reverse=True)
         return tuple(ranked[:limit])
+
+    async def create_cultural_artifact(
+        self,
+        tenant_id: str,
+        scope: str,
+        claim: str,
+        *,
+        conditions: tuple[str, ...] = (),
+        restrictions: tuple[str, ...] = (),
+        recovery: str | None = None,
+        evidence_refs: tuple[SourceRef, ...] = (),
+        metadata: dict[str, Any] | None = None,
+    ) -> CulturalArtifact:
+        normalized_scope = scope.strip()
+        if not tenant_id.strip() or not normalized_scope or not claim.strip():
+            raise ValidationError("tenant_id, cultural scope, and claim are required")
+        artifact = CulturalArtifact(
+            artifact_id=self.ids.new("car"),
+            tenant_id=tenant_id,
+            scope=normalized_scope,
+            version=1,
+            claim=claim.strip(),
+            conditions=tuple(item.strip() for item in conditions if item.strip()),
+            restrictions=tuple(item.strip() for item in restrictions if item.strip()),
+            recovery=recovery.strip() if recovery and recovery.strip() else None,
+            evidence_refs=evidence_refs,
+            status=CulturalArtifactStatus.DRAFT,
+            metadata=dict(metadata or {}),
+            supersedes_artifact_id=None,
+            created_at=utc_now(),
+        )
+        await self.stores.save_cultural_artifact(artifact)
+        await self._emit(
+            tenant_id,
+            "culture.artifact.created.v1",
+            "cultural_artifact",
+            artifact.artifact_id,
+            artifact.version,
+            {"scope": artifact.scope},
+        )
+        return artifact
+
+    async def get_cultural_artifact(
+        self, tenant_id: str, artifact_id: str
+    ) -> CulturalArtifact:
+        artifact = await self.stores.get_cultural_artifact(tenant_id, artifact_id)
+        if artifact is None:
+            raise NotFoundError("Cultural artifact was not found in the current tenant")
+        return artifact
+
+    async def list_cultural_artifacts(
+        self,
+        tenant_id: str,
+        *,
+        scope: str | None = None,
+        include_withdrawn: bool = False,
+    ) -> tuple[CulturalArtifact, ...]:
+        artifacts = await self.stores.list_cultural_artifacts(tenant_id, scope)
+        return tuple(
+            artifact
+            for artifact in artifacts
+            if include_withdrawn or artifact.status != CulturalArtifactStatus.WITHDRAWN
+        )
+
+    async def revise_cultural_artifact(
+        self,
+        tenant_id: str,
+        artifact_id: str,
+        *,
+        claim: str,
+        conditions: tuple[str, ...] = (),
+        restrictions: tuple[str, ...] = (),
+        recovery: str | None = None,
+        evidence_refs: tuple[SourceRef, ...] = (),
+        metadata: dict[str, Any] | None = None,
+    ) -> CulturalArtifact:
+        original = await self.get_cultural_artifact(tenant_id, artifact_id)
+        if original.status == CulturalArtifactStatus.WITHDRAWN:
+            raise ConflictError("A withdrawn cultural artifact cannot be revised")
+        if not claim.strip():
+            raise ValidationError("Cultural claim is required")
+        revised = CulturalArtifact(
+            artifact_id=self.ids.new("car"),
+            tenant_id=tenant_id,
+            scope=original.scope,
+            version=original.version + 1,
+            claim=claim.strip(),
+            conditions=tuple(item.strip() for item in conditions if item.strip()),
+            restrictions=tuple(item.strip() for item in restrictions if item.strip()),
+            recovery=recovery.strip() if recovery and recovery.strip() else None,
+            evidence_refs=evidence_refs,
+            status=CulturalArtifactStatus.DRAFT,
+            metadata=dict(metadata or original.metadata),
+            supersedes_artifact_id=original.artifact_id,
+            created_at=utc_now(),
+        )
+        await self.stores.save_cultural_artifact(revised)
+        return revised
+
+    async def withdraw_cultural_artifact(
+        self, tenant_id: str, artifact_id: str
+    ) -> CulturalArtifact:
+        artifact = await self.get_cultural_artifact(tenant_id, artifact_id)
+        if artifact.status == CulturalArtifactStatus.WITHDRAWN:
+            return artifact
+        withdrawn = replace(artifact, status=CulturalArtifactStatus.WITHDRAWN)
+        await self.stores.save_cultural_artifact(withdrawn)
+        await self._emit(
+            tenant_id,
+            "culture.artifact.withdrawn.v1",
+            "cultural_artifact",
+            artifact.artifact_id,
+            artifact.version,
+            {"scope": artifact.scope},
+        )
+        return withdrawn
+
+    async def publish_cultural_snapshot(
+        self,
+        tenant_id: str,
+        scope: str,
+        *,
+        artifact_ids: tuple[str, ...] | None = None,
+        policy_version: str = "culture-policy-v1",
+    ) -> CulturalSnapshot:
+        normalized_scope = scope.strip()
+        if not normalized_scope:
+            raise ValidationError("Cultural scope is required")
+        async with self._mutation_lock:
+            artifacts = await self.stores.list_cultural_artifacts(tenant_id, normalized_scope)
+            by_id = {artifact.artifact_id: artifact for artifact in artifacts}
+            if artifact_ids is not None:
+                unknown = [artifact_id for artifact_id in artifact_ids if artifact_id not in by_id]
+                if unknown:
+                    raise NotFoundError(
+                        "A cultural artifact was not found in the requested scope",
+                        details={"artifact_ids": unknown},
+                    )
+                selected = [by_id[artifact_id] for artifact_id in artifact_ids]
+            else:
+                superseded = {
+                    artifact.supersedes_artifact_id
+                    for artifact in artifacts
+                    if artifact.supersedes_artifact_id
+                    and artifact.status != CulturalArtifactStatus.WITHDRAWN
+                }
+                selected = [
+                    artifact
+                    for artifact in artifacts
+                    if artifact.status != CulturalArtifactStatus.WITHDRAWN
+                    and artifact.artifact_id not in superseded
+                ]
+            if any(artifact.status == CulturalArtifactStatus.WITHDRAWN for artifact in selected):
+                raise ConflictError("Withdrawn cultural artifacts cannot be published")
+            selected.sort(key=lambda artifact: artifact.artifact_id)
+            for artifact in selected:
+                if artifact.status == CulturalArtifactStatus.DRAFT:
+                    published = replace(artifact, status=CulturalArtifactStatus.PUBLISHED)
+                    await self.stores.save_cultural_artifact(published)
+            previous = await self.stores.get_active_cultural_snapshot(
+                tenant_id, normalized_scope
+            )
+            canonical = [
+                {
+                    "id": artifact.artifact_id,
+                    "version": artifact.version,
+                    "claim": artifact.claim,
+                    "conditions": artifact.conditions,
+                    "restrictions": artifact.restrictions,
+                    "recovery": artifact.recovery,
+                }
+                for artifact in selected
+            ]
+            digest = hashlib.sha256(
+                json.dumps(canonical, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            snapshot = CulturalSnapshot(
+                snapshot_id=self.ids.new("csp"),
+                tenant_id=tenant_id,
+                scope=normalized_scope,
+                version=(previous.version + 1 if previous else 1),
+                artifact_ids=tuple(artifact.artifact_id for artifact in selected),
+                content_digest=digest,
+                policy_version=policy_version.strip() or "culture-policy-v1",
+                previous_snapshot_id=previous.snapshot_id if previous else None,
+                created_at=utc_now(),
+            )
+            await self.stores.save_cultural_snapshot(snapshot)
+            await self.stores.activate_cultural_snapshot(snapshot)
+            await self._emit(
+                tenant_id,
+                "culture.snapshot.published.v1",
+                "cultural_snapshot",
+                snapshot.snapshot_id,
+                snapshot.version,
+                {"scope": snapshot.scope, "artifact_count": len(snapshot.artifact_ids)},
+            )
+            return snapshot
+
+    async def get_cultural_snapshot(
+        self, tenant_id: str, snapshot_id: str
+    ) -> CulturalSnapshot:
+        snapshot = await self.stores.get_cultural_snapshot(tenant_id, snapshot_id)
+        if snapshot is None:
+            raise NotFoundError("Cultural snapshot was not found in the current tenant")
+        return snapshot
+
+    async def resolve_cultural_snapshot(
+        self, tenant_id: str, scope: str = "default"
+    ) -> tuple[CulturalSnapshot | None, tuple[ResolvedCulturalArtifact, ...]]:
+        snapshot = await self.stores.get_active_cultural_snapshot(tenant_id, scope)
+        if snapshot is None:
+            return None, ()
+        resolved: list[ResolvedCulturalArtifact] = []
+        for artifact_id in snapshot.artifact_ids:
+            artifact = await self.stores.get_cultural_artifact(tenant_id, artifact_id)
+            if artifact is None:
+                raise ConflictError(
+                    "A published cultural snapshot references a missing artifact",
+                    details={"snapshot_id": snapshot.snapshot_id, "artifact_id": artifact_id},
+                )
+            resolved.append(
+                ResolvedCulturalArtifact(
+                    artifact_id=artifact.artifact_id,
+                    version=artifact.version,
+                    claim=artifact.claim,
+                    conditions=artifact.conditions,
+                    restrictions=artifact.restrictions,
+                    recovery=artifact.recovery,
+                    evidence_refs=artifact.evidence_refs,
+                )
+            )
+        return snapshot, tuple(resolved)
 
     def _require_active(self, run: AgentRun) -> None:
         if run.status in _TERMINAL_STATUSES:

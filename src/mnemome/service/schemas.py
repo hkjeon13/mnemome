@@ -73,3 +73,28 @@ class CorrectFactBody(BaseModel):
     statement: str = Field(min_length=1, max_length=20_000)
     confidence: float = Field(default=1.0, ge=0, le=1)
     sources: list[SourceRefBody] = Field(min_length=1)
+
+
+class CulturalArtifactBody(BaseModel):
+    scope: str = Field(default="default", min_length=1, max_length=200)
+    claim: str = Field(min_length=1, max_length=20_000)
+    conditions: list[str] = Field(default_factory=list, max_length=50)
+    restrictions: list[str] = Field(default_factory=list, max_length=50)
+    recovery: str | None = Field(default=None, max_length=10_000)
+    evidence_refs: list[SourceRefBody] = Field(default_factory=list, max_length=50)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviseCulturalArtifactBody(BaseModel):
+    claim: str = Field(min_length=1, max_length=20_000)
+    conditions: list[str] = Field(default_factory=list, max_length=50)
+    restrictions: list[str] = Field(default_factory=list, max_length=50)
+    recovery: str | None = Field(default=None, max_length=10_000)
+    evidence_refs: list[SourceRefBody] = Field(default_factory=list, max_length=50)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublishCulturalSnapshotBody(BaseModel):
+    scope: str = Field(default="default", min_length=1, max_length=200)
+    artifact_ids: list[str] | None = Field(default=None, max_length=500)
+    policy_version: str = Field(default="culture-policy-v1", min_length=1, max_length=200)

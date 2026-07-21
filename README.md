@@ -62,13 +62,26 @@ keys are API keys and whose values contain `tenant_id`, `principal_id`, and
   "replace-with-a-secret": {
     "tenant_id": "tenant-a",
     "principal_id": "service-a",
-    "roles": ["agent", "memory:read", "memory:write"]
+    "roles": ["agent", "memory:read", "memory:write", "culture:read", "culture:write", "culture:publish"]
   }
 }
 ```
 
 Interactive API documentation is available at `/docs`. All product endpoints
 are under `/v1`; health probes are `/health` and `/ready`.
+
+### Cultural memory
+
+Cultural memory is a versioned governance layer, separate from user facts and
+conversation memory. Library consumers can create, revise, withdraw, publish, and resolve
+artifacts through `mnemome.cultural_memory`. A run resolves the active snapshot for its
+requested scope once, then pins the snapshot ID and sanitized artifacts in its
+`ContextBundle`.
+
+The service exposes the same functionality through role-protected endpoints under
+`/v1/cultural-artifacts` and `/v1/cultural-snapshots`. Use `culture:read`, `culture:write`,
+and `culture:publish` roles. The Playground deliberately shows a server-seeded snapshot as
+read-only; this demo restriction does not limit either the library or `/v1` API.
 
 ## Memory demo page
 
@@ -93,9 +106,9 @@ public `LongTermMemory` protocol. The public demo uses Lotte Agent's real
 and per-session request limits plus a bounded output budget protect live calls.
 The UI renders a sanitized Lotte Agent workflow trace with real plan titles,
 step states, model-call counts, and latency. It also distinguishes persistent
-long-term recall, run-scoped short-term context, and the currently unconfigured
-cultural-memory provider, and identifies the retriever used for long-term
-memory.
+long-term recall, run-scoped short-term context, and the immutable cultural snapshot pinned
+to the run. The Playground's Culture tab shows those server-managed rules without exposing
+edit or delete controls, and identifies the retriever used for long-term memory.
 
 When `MNEMOME_MCP_URL` is configured, the demo connects Lotte Agent to the
 remote streamable-HTTP MCP server inside the API process. The public profile

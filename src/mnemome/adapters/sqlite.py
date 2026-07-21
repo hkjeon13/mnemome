@@ -13,6 +13,9 @@ from ..contracts import (
     AgentEvent,
     AgentRun,
     Checkpoint,
+    CulturalArtifact,
+    CulturalArtifactStatus,
+    CulturalSnapshot,
     DomainEvent,
     FactStatus,
     MemoryFact,
@@ -115,6 +118,43 @@ class SqliteStores:
             );
             CREATE INDEX IF NOT EXISTS ix_memory_facts_tenant_status
                 ON memory_facts (tenant_id, status);
+            CREATE TABLE IF NOT EXISTS cultural_artifacts (
+                tenant_id TEXT NOT NULL,
+                artifact_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                claim TEXT NOT NULL,
+                conditions_json TEXT NOT NULL,
+                restrictions_json TEXT NOT NULL,
+                recovery TEXT,
+                evidence_refs_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                supersedes_artifact_id TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, artifact_id)
+            );
+            CREATE INDEX IF NOT EXISTS ix_cultural_artifacts_scope
+                ON cultural_artifacts (tenant_id, scope, status);
+            CREATE TABLE IF NOT EXISTS cultural_snapshots (
+                tenant_id TEXT NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                artifact_ids_json TEXT NOT NULL,
+                content_digest TEXT NOT NULL,
+                policy_version TEXT NOT NULL,
+                previous_snapshot_id TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, snapshot_id),
+                UNIQUE (tenant_id, scope, version)
+            );
+            CREATE TABLE IF NOT EXISTS active_cultural_snapshots (
+                tenant_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, scope)
+            );
             CREATE TABLE IF NOT EXISTS outbox_events (
                 event_id TEXT PRIMARY KEY,
                 event_type TEXT NOT NULL,
@@ -339,6 +379,145 @@ class SqliteStores:
             "SELECT * FROM memory_facts WHERE tenant_id=? ORDER BY created_at DESC", (tenant_id,)
         ).fetchall()
         return [self._fact_from_row(row) for row in rows]
+
+    async def save_cultural_artifact(self, artifact: CulturalArtifact) -> None:
+        evidence = [asdict(source) for source in artifact.evidence_refs]
+        async with self._lock:
+            self.connection.execute(
+                """INSERT INTO cultural_artifacts
+                (tenant_id, artifact_id, scope, version, claim, conditions_json,
+                 restrictions_json, recovery, evidence_refs_json, status, metadata_json,
+                 supersedes_artifact_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, artifact_id) DO UPDATE SET
+                  status=excluded.status, metadata_json=excluded.metadata_json""",
+                (
+                    artifact.tenant_id,
+                    artifact.artifact_id,
+                    artifact.scope,
+                    artifact.version,
+                    artifact.claim,
+                    _json(artifact.conditions),
+                    _json(artifact.restrictions),
+                    artifact.recovery,
+                    _json(evidence),
+                    artifact.status.value,
+                    _json(artifact.metadata),
+                    artifact.supersedes_artifact_id,
+                    artifact.created_at.isoformat(),
+                ),
+            )
+            self.connection.commit()
+
+    def _cultural_artifact_from_row(self, row: sqlite3.Row) -> CulturalArtifact:
+        return CulturalArtifact(
+            artifact_id=row["artifact_id"],
+            tenant_id=row["tenant_id"],
+            scope=row["scope"],
+            version=row["version"],
+            claim=row["claim"],
+            conditions=tuple(json.loads(row["conditions_json"])),
+            restrictions=tuple(json.loads(row["restrictions_json"])),
+            recovery=row["recovery"],
+            evidence_refs=tuple(
+                SourceRef(**source) for source in json.loads(row["evidence_refs_json"])
+            ),
+            status=CulturalArtifactStatus(row["status"]),
+            metadata=json.loads(row["metadata_json"]),
+            supersedes_artifact_id=row["supersedes_artifact_id"],
+            created_at=_dt(row["created_at"]),
+        )
+
+    async def get_cultural_artifact(
+        self, tenant_id: str, artifact_id: str
+    ) -> CulturalArtifact | None:
+        row = self.connection.execute(
+            "SELECT * FROM cultural_artifacts WHERE tenant_id=? AND artifact_id=?",
+            (tenant_id, artifact_id),
+        ).fetchone()
+        return self._cultural_artifact_from_row(row) if row else None
+
+    async def list_cultural_artifacts(
+        self, tenant_id: str, scope: str | None = None
+    ) -> list[CulturalArtifact]:
+        if scope is None:
+            rows = self.connection.execute(
+                "SELECT * FROM cultural_artifacts WHERE tenant_id=? ORDER BY created_at DESC",
+                (tenant_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """SELECT * FROM cultural_artifacts WHERE tenant_id=? AND scope=?
+                ORDER BY created_at DESC""",
+                (tenant_id, scope),
+            ).fetchall()
+        return [self._cultural_artifact_from_row(row) for row in rows]
+
+    async def save_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None:
+        async with self._lock:
+            self.connection.execute(
+                """INSERT OR IGNORE INTO cultural_snapshots
+                (tenant_id, snapshot_id, scope, version, artifact_ids_json, content_digest,
+                 policy_version, previous_snapshot_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    snapshot.tenant_id,
+                    snapshot.snapshot_id,
+                    snapshot.scope,
+                    snapshot.version,
+                    _json(snapshot.artifact_ids),
+                    snapshot.content_digest,
+                    snapshot.policy_version,
+                    snapshot.previous_snapshot_id,
+                    snapshot.created_at.isoformat(),
+                ),
+            )
+            self.connection.commit()
+
+    def _cultural_snapshot_from_row(self, row: sqlite3.Row) -> CulturalSnapshot:
+        return CulturalSnapshot(
+            snapshot_id=row["snapshot_id"],
+            tenant_id=row["tenant_id"],
+            scope=row["scope"],
+            version=row["version"],
+            artifact_ids=tuple(json.loads(row["artifact_ids_json"])),
+            content_digest=row["content_digest"],
+            policy_version=row["policy_version"],
+            previous_snapshot_id=row["previous_snapshot_id"],
+            created_at=_dt(row["created_at"]),
+        )
+
+    async def get_cultural_snapshot(
+        self, tenant_id: str, snapshot_id: str
+    ) -> CulturalSnapshot | None:
+        row = self.connection.execute(
+            "SELECT * FROM cultural_snapshots WHERE tenant_id=? AND snapshot_id=?",
+            (tenant_id, snapshot_id),
+        ).fetchone()
+        return self._cultural_snapshot_from_row(row) if row else None
+
+    async def get_active_cultural_snapshot(
+        self, tenant_id: str, scope: str
+    ) -> CulturalSnapshot | None:
+        row = self.connection.execute(
+            """SELECT snapshots.* FROM cultural_snapshots AS snapshots
+            JOIN active_cultural_snapshots AS active
+              ON active.tenant_id=snapshots.tenant_id
+             AND active.snapshot_id=snapshots.snapshot_id
+            WHERE active.tenant_id=? AND active.scope=?""",
+            (tenant_id, scope),
+        ).fetchone()
+        return self._cultural_snapshot_from_row(row) if row else None
+
+    async def activate_cultural_snapshot(self, snapshot: CulturalSnapshot) -> None:
+        async with self._lock:
+            self.connection.execute(
+                """INSERT INTO active_cultural_snapshots (tenant_id, scope, snapshot_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(tenant_id, scope) DO UPDATE SET snapshot_id=excluded.snapshot_id""",
+                (snapshot.tenant_id, snapshot.scope, snapshot.snapshot_id),
+            )
+            self.connection.commit()
 
     async def append_domain_event(self, event: DomainEvent) -> None:
         async with self._lock:

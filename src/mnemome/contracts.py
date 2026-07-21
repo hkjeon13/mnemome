@@ -24,6 +24,12 @@ class FactStatus(StrEnum):
     SUPPRESSED = "SUPPRESSED"
 
 
+class CulturalArtifactStatus(StrEnum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    WITHDRAWN = "WITHDRAWN"
+
+
 @dataclass(frozen=True, slots=True)
 class AgentDescriptor:
     agent_id: str
@@ -51,12 +57,54 @@ class RecalledFact:
 
 
 @dataclass(frozen=True, slots=True)
+class CulturalArtifact:
+    artifact_id: str
+    tenant_id: str
+    scope: str
+    version: int
+    claim: str
+    conditions: tuple[str, ...]
+    restrictions: tuple[str, ...]
+    recovery: str | None
+    evidence_refs: tuple[SourceRef, ...]
+    status: CulturalArtifactStatus
+    metadata: dict[str, Any]
+    supersedes_artifact_id: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CulturalSnapshot:
+    snapshot_id: str
+    tenant_id: str
+    scope: str
+    version: int
+    artifact_ids: tuple[str, ...]
+    content_digest: str
+    policy_version: str
+    previous_snapshot_id: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCulturalArtifact:
+    artifact_id: str
+    version: int
+    claim: str
+    conditions: tuple[str, ...]
+    restrictions: tuple[str, ...]
+    recovery: str | None
+    evidence_refs: tuple[SourceRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ContextBundle:
     run_id: str
     context_version: int
     cultural_snapshot_id: str
     recalled_facts: tuple[RecalledFact, ...]
     created_at: datetime
+    cultural_artifacts: tuple[ResolvedCulturalArtifact, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

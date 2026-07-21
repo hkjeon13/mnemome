@@ -126,9 +126,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "system-note" not in page.text
             assert 'id="trace-section"' in page.text
             assert 'id="trace-view-tab"' in page.text
+            assert 'id="culture-view-tab"' in page.text
+            assert 'id="culture-view"' in page.text
+            assert "공유 응답 원칙" in page.text
+            assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-memory-delete-confirm" in page.text
+            assert "20260721-cultural-memory" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -155,7 +159,15 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert status.json()["runtime_available"] is True
             assert status.json()["model"] == "gpt-live-test"
             assert status.json()["mcp_configured"] is True
+            assert status.json()["cultural_memory_configured"] is True
             assert status.json()["memory_count"] == 3
+
+            culture = await client.get("/demo/api/cultural-snapshot")
+            assert culture.status_code == 200
+            assert culture.json()["snapshot"]["read_only"] is True
+            assert culture.json()["snapshot"]["policy_version"] == "mnemome-demo-culture-v1"
+            assert len(culture.json()["items"]) == 2
+            assert all(item["read_only"] for item in culture.json()["items"])
 
             streamed = await client.post(
                 "/demo/api/chat/stream", json={"query": "한국어 스트림 응답을 보여줘"}
@@ -190,7 +202,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert payload["memory_trace"]["long_term"]["status"] == "applied"
             assert payload["memory_trace"]["long_term"]["retriever"].startswith("BM25 · ")
             assert payload["memory_trace"]["short_term"]["status"] == "applied"
-            assert payload["memory_trace"]["cultural"]["status"] == "not_configured"
+            assert payload["memory_trace"]["cultural"]["status"] == "applied"
+            assert payload["memory_trace"]["cultural"]["count"] == 2
             assert payload["preference_captured"] is False
             assert payload["mcp"] == {
                 "status": "connected",
@@ -198,6 +211,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "tools": ["search_retrieve"],
             }
             assert any("[Mnemome 장기 기억]" in messages for messages in seen_messages)
+            assert any("[문화적 기억" in messages for messages in seen_messages)
+            assert any(
+                "단순히 '분쟁지역'이라고 규정하지 않는다" in messages
+                for messages in seen_messages
+            )
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
             preference_text = "앞으로 지명을 나타낼 때는 한자 표기도 함께 표시해줘."
@@ -238,6 +256,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert remaining.json()["clearable_count"] == 0
             assert len(remaining.json()["items"]) == 3
             assert all(item["is_seed"] for item in remaining.json()["items"])
+            culture_after_clear = await client.get("/demo/api/cultural-snapshot")
+            assert culture_after_clear.json()["snapshot"]["id"] == culture.json()["snapshot"]["id"]
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="https://another.test"

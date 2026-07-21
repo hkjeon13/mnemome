@@ -43,6 +43,7 @@
 | 17 | [ADR과 미결정 사항](./17-decisions-and-open-questions.md) | 결정 기록, 기본 선택, 대안, open question |
 | 18 | [Library Embedding과 On-Premises](./18-library-embedding-and-on-premises.md) | Core SDK, port/adapter, embedded·on-prem·hybrid·SaaS profile |
 | 19 | [Evaluation Subsystem과 LLM Judge](./19-evaluation-and-llm-judge.md) | bounded evaluator, LLM Judge class, rubric, aggregation, independence |
+| 20 | [Cultural Memory 데모 구현 계획](./20-cultural-memory-demo-implementation-plan.md) | library/API 문화 메모리와 읽기 전용 데모 snapshot 구현 순서 |
 
 ---
 
