@@ -378,6 +378,7 @@ function renderAnswerLinks(element, text) {
 
 function renderPlanProgress(element, steps, activeStep) {
   element.replaceChildren();
+  element.removeAttribute("aria-label");
   element.className = "plan-progress";
   const heading = document.createElement("strong");
   heading.textContent = "진행 계획";
@@ -538,8 +539,9 @@ async function sendChat(query) {
   setChatBusy(true);
   elements.starterPrompts.hidden = true;
   appendMessage("user", query.trim());
-  const responseMessage = appendMessage("assistant", "실행 계획을 만들고 있습니다…");
+  const responseMessage = appendMessage("assistant", "");
   const responseText = responseMessage.querySelector("p");
+  responseText.setAttribute("aria-label", "실행 계획 생성 중");
   responseMessage.classList.add("typing");
   let receivedDelta = false;
   let result = null;
@@ -569,6 +571,7 @@ async function sendChat(query) {
           if (!receivedDelta) {
             receivedDelta = true;
             responseText.textContent = "";
+            responseText.removeAttribute("aria-label");
             responseText.className = "";
             responseMessage.classList.remove("typing");
           }
@@ -591,6 +594,8 @@ async function sendChat(query) {
     if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
     responseMessage.classList.remove("typing");
+    responseText.removeAttribute("aria-label");
+    responseText.className = "";
     const errorText = error.name === "AbortError"
       ? "응답 생성을 중지했습니다."
       : `실행 중 문제가 발생했습니다: ${error.message}`;
