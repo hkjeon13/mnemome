@@ -129,6 +129,9 @@ class MemoryFact:
     status: FactStatus
     sources: tuple[SourceRef, ...]
     created_at: datetime
+    kind: str = "fact"
+    tags: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
     supersedes_fact_id: str | None = None
 
 

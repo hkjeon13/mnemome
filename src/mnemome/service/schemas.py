@@ -53,6 +53,12 @@ class FactInputBody(BaseModel):
     sources: list[SourceRefBody] = Field(default_factory=list)
 
 
+class CreateFactBody(FactInputBody):
+    kind: str = Field(default="fact", pattern="^(fact|preference|episode|conversation)$")
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class CompleteRunBody(BaseModel):
     outcome: dict[str, Any]
     response_ref: str | None = Field(default=None, max_length=2000)

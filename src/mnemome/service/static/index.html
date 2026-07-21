@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Mnemome와 Lotte Agent가 장기 기억을 저장하고 다시 사용하는 과정을 체험하는 데모"
+    />
+    <title>Mnemome · Agent Memory Lab</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Mnemome 홈">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 44 44" role="img">
+            <path d="M12 30V14l10 8 10-8v16" />
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="32" cy="12" r="3" />
+            <circle cx="12" cy="32" r="3" />
+            <circle cx="32" cy="32" r="3" />
+          </svg>
+        </span>
+        <span>
+          <strong>Mnemome</strong>
+          <small>Agent Memory Lab</small>
+        </span>
+      </a>
+      <div class="runtime-status" data-testid="runtime-status">
+        <span class="status-dot"></span>
+        <span id="runtime-label">연결 확인 중</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span>LIVE SANDBOX</span> Memory that agents can use</div>
+        <h1>기억을 넣고,<br /><em>Agent가 꺼내 쓰는 순간</em>을 보세요.</h1>
+        <p>
+          Mnemome은 기억을 안전하게 보관하고, Lotte Agent는 질문에 맞는 기억을 찾아 실행
+          컨텍스트로 사용합니다. 이 페이지에서 전체 흐름을 직접 체험할 수 있습니다.
+        </p>
+        <div class="hero-flow" aria-label="데모 처리 흐름">
+          <div><b>01</b><span>기억 저장</span><small>Fact · Preference · Episode</small></div>
+          <i>→</i>
+          <div><b>02</b><span>관련 기억 검색</span><small>Tenant-scoped recall</small></div>
+          <i>→</i>
+          <div><b>03</b><span>Agent 실행</span><small>Lotte Agent runtime</small></div>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Mnemome 데모 워크스페이스">
+        <article class="panel chat-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">AGENT PLAYGROUND</span>
+              <h2>기억 기반 대화</h2>
+            </div>
+            <span class="agent-chip">Lotte Agent</span>
+          </div>
+
+          <div class="conversation" id="conversation" aria-live="polite">
+            <div class="message assistant-message">
+              <div class="avatar">M</div>
+              <div class="message-body">
+                <span class="message-author">Mnemome Guide</span>
+                <p>
+                  오른쪽에 저장된 기억을 바탕으로 답변합니다. 아래 예시 질문을 선택하거나 직접
+                  입력해 보세요.
+                </p>
+              </div>
+            </div>
+            <div class="starter-prompts" id="starter-prompts">
+              <button type="button">내가 선호하는 답변 방식은?</button>
+              <button type="button">배포 환경에 대해 기억하는 내용은?</button>
+              <button type="button">지난 배포 점검 결과를 알려줘</button>
+            </div>
+          </div>
+
+          <form class="chat-composer" id="chat-form">
+            <label class="sr-only" for="chat-input">Agent에게 질문</label>
+            <textarea
+              id="chat-input"
+              rows="2"
+              maxlength="1000"
+              placeholder="저장된 기억에 대해 질문해 보세요"
+              required
+            ></textarea>
+            <button class="send-button" type="submit" aria-label="질문 보내기">
+              <span>보내기</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 11-6-3 12-2-5-6-1Z" /></svg>
+            </button>
+          </form>
+        </article>
+
+        <aside class="panel memory-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">MEMORY VAULT</span>
+              <h2>내 메모리</h2>
+            </div>
+            <span class="count-badge" id="memory-count">0</span>
+          </div>
+
+          <div class="memory-toolbar">
+            <label class="search-field">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5" /><path d="m13 13 4 4" /></svg>
+              <span class="sr-only">메모리 검색</span>
+              <input id="memory-search" type="search" placeholder="메모리 검색" />
+            </label>
+            <button class="add-button" id="open-memory-form" type="button">+ 기억 추가</button>
+          </div>
+
+          <div class="filter-tabs" role="tablist" aria-label="메모리 유형">
+            <button class="active" data-kind="" type="button">전체</button>
+            <button data-kind="fact" type="button">사실</button>
+            <button data-kind="preference" type="button">선호</button>
+            <button data-kind="episode" type="button">경험</button>
+            <button data-kind="conversation" type="button">대화</button>
+          </div>
+
+          <div class="memory-list" id="memory-list" aria-live="polite"></div>
+        </aside>
+      </section>
+
+      <section class="system-note">
+        <div>
+          <span class="note-icon">◎</span>
+          <div>
+            <strong>이 데모는 실제 저장소를 사용합니다</strong>
+            <p>
+              브라우저별 격리 세션에 최대 50개의 기억이 저장됩니다. Agent 응답도 Conversation
+              기억으로 남으며, 항목 삭제는 provenance 보존을 위해 비활성화 방식으로 처리됩니다.
+            </p>
+          </div>
+        </div>
+        <a href="/docs">API 문서 보기 <span>↗</span></a>
+      </section>
+    </main>
+
+    <dialog id="memory-dialog">
+      <form method="dialog" class="dialog-card" id="memory-form">
+        <div class="dialog-heading">
+          <div>
+            <span class="panel-kicker">NEW MEMORY</span>
+            <h2>기억 추가</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="닫기">×</button>
+        </div>
+        <label>
+          <span>기억 유형</span>
+          <select id="memory-kind">
+            <option value="fact">사실 · Fact</option>
+            <option value="preference">선호 · Preference</option>
+            <option value="episode">경험 · Episode</option>
+          </select>
+        </label>
+        <label>
+          <span>기억할 내용</span>
+          <textarea
+            id="memory-content"
+            rows="5"
+            maxlength="2000"
+            placeholder="예: 보고서는 결론부터 한국어로 작성해 주세요."
+            required
+          ></textarea>
+        </label>
+        <label>
+          <span>태그 <small>쉼표로 구분</small></span>
+          <input id="memory-tags" type="text" placeholder="preference, report" />
+        </label>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel" type="submit">취소</button>
+          <button class="primary-button" id="save-memory" value="default" type="submit">기억 저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

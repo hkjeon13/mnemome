@@ -277,6 +277,10 @@ class MnemomeApplication:
         *,
         confidence: float = 1.0,
         sources: tuple[SourceRef, ...],
+        kind: str = "fact",
+        tags: tuple[str, ...] = (),
+        metadata: dict[str, Any] | None = None,
+        fact_id: str | None = None,
         supersedes_fact_id: str | None = None,
     ) -> MemoryFact:
         if not statement.strip():
@@ -285,14 +289,20 @@ class MnemomeApplication:
             raise ValidationError("Fact confidence must be between 0 and 1")
         if not sources:
             raise ValidationError("A derived fact must have at least one source reference")
+        normalized_kind = kind.strip().lower()
+        if normalized_kind not in {"fact", "preference", "episode", "conversation"}:
+            raise ValidationError("Unsupported memory kind")
         fact = MemoryFact(
-            fact_id=self.ids.new("fac"),
+            fact_id=fact_id or self.ids.new("fac"),
             tenant_id=tenant_id,
             statement=statement.strip(),
             confidence=confidence,
             status=FactStatus.ACTIVE,
             sources=sources,
             created_at=utc_now(),
+            kind=normalized_kind,
+            tags=tuple(sorted({tag.strip() for tag in tags if tag.strip()})),
+            metadata=dict(metadata or {}),
             supersedes_fact_id=supersedes_fact_id,
         )
         await self.stores.save_fact(fact)
@@ -305,6 +315,26 @@ class MnemomeApplication:
             {"source_count": len(sources)},
         )
         return fact
+
+    async def list_facts(
+        self,
+        tenant_id: str,
+        *,
+        kind: str | None = None,
+        include_suppressed: bool = False,
+        limit: int = 100,
+    ) -> tuple[MemoryFact, ...]:
+        if limit < 1 or limit > 500:
+            raise ValidationError("Memory list limit must be between 1 and 500")
+        normalized_kind = kind.strip().lower() if kind else None
+        facts = await self.stores.list_facts(tenant_id)
+        filtered = [
+            fact
+            for fact in facts
+            if (include_suppressed or fact.status == FactStatus.ACTIVE)
+            and (normalized_kind is None or fact.kind == normalized_kind)
+        ]
+        return tuple(filtered[:limit])
 
     async def get_fact(self, tenant_id: str, fact_id: str) -> MemoryFact:
         fact = await self.stores.get_fact(tenant_id, fact_id)
@@ -329,6 +359,9 @@ class MnemomeApplication:
             statement,
             confidence=confidence,
             sources=sources,
+            kind=original.kind,
+            tags=original.tags,
+            metadata=original.metadata,
             supersedes_fact_id=original.fact_id,
         )
         await self.stores.save_fact(replace(original, status=FactStatus.SUPERSEDED))

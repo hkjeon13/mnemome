@@ -8,17 +8,20 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..adapters import SqliteStores
 from ..application import MnemomeApplication
 from ..contracts import FactInput, OpenRunRequest, SourceRef
 from ..errors import AuthenticationError, AuthorizationError, MnemomeError
 from ..ports import Stores
+from .demo import STATIC_DIR, build_demo_router
 from .schemas import (
     AgentEventBody,
     CheckpointBody,
     CompleteRunBody,
     CorrectFactBody,
+    CreateFactBody,
     FailRunBody,
     OpenRunBody,
     RegisterAgentBody,
@@ -54,6 +57,8 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
         description="Memory infrastructure for external agents; no agent inference endpoint.",
         lifespan=lifespan,
     )
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.include_router(build_demo_router())
 
     @app.exception_handler(MnemomeError)
     async def handle_mnemome_error(request: Request, error: MnemomeError) -> JSONResponse:
@@ -221,6 +226,38 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
         limit: Annotated[int, Query(ge=1, le=100)] = 10,
     ) -> dict[str, Any]:
         return {"items": await application.recall(identity.tenant_id, query, limit=limit)}
+
+    @app.get("/v1/memory-facts", tags=["memory"])
+    async def list_facts(
+        identity: MemoryReader,
+        kind: Annotated[str | None, Query()] = None,
+        include_suppressed: bool = False,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> dict[str, Any]:
+        return {
+            "items": await application.list_facts(
+                identity.tenant_id,
+                kind=kind,
+                include_suppressed=include_suppressed,
+                limit=limit,
+            )
+        }
+
+    @app.post("/v1/memory-facts", status_code=201, tags=["memory"])
+    async def create_fact(body: CreateFactBody, identity: MemoryWriter) -> JSONResponse:
+        sources = tuple(SourceRef(**source.model_dump()) for source in body.sources) or (
+            SourceRef("principal", identity.principal_id),
+        )
+        fact = await application.create_fact(
+            identity.tenant_id,
+            body.statement,
+            confidence=body.confidence,
+            sources=sources,
+            kind=body.kind,
+            tags=tuple(body.tags),
+            metadata=body.metadata,
+        )
+        return _response(fact, status_code=201)
 
     @app.get("/v1/memory-facts/{fact_id}", tags=["memory"])
     async def get_fact(fact_id: str, identity: MemoryReader) -> JSONResponse:

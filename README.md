@@ -70,6 +70,18 @@ keys are API keys and whose values contain `tenant_id`, `principal_id`, and
 Interactive API documentation is available at `/docs`. All product endpoints
 are under `/v1`; health probes are `/health` and `/ready`.
 
+## Memory demo page
+
+The service root provides an interactive memory lab. Each browser gets an
+isolated demo tenant where it can create facts, preferences, and episodes,
+search or suppress them, and ask a Lotte Agent runtime to use recalled memories.
+Successful Agent output is stored back as a conversation memory.
+
+The integration uses `MnemomeLongTermMemory`, an adapter for Lotte Agent's
+public `LongTermMemory` protocol. The public demo deliberately uses a bounded,
+deterministic model adapter so no provider key is exposed and public traffic
+cannot create unbounded LLM cost.
+
 ## Development
 
 ```bash

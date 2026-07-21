@@ -26,6 +26,18 @@ The service binds to loopback by default. Put an HTTPS reverse proxy in front of
 it, or explicitly set `MNEMOME_BIND_ADDRESS` when access from another host is
 intended. Never publish the development API key.
 
+## Lotte Agent demo integration
+
+The root demo page can use the internal Lotte Agent runtime through
+`MnemomeLongTermMemory`. Because the upstream library is not publicly
+redistributed, an authorized build places `lotte_agent-*.whl` under `vendor/`
+and sets `MNEMOME_REQUIRE_LOTTE_AGENT=1`. The wheel is installed into the same
+service image but remains outside the public Git repository.
+
+The public demo uses a deterministic model adapter. It exercises Lotte Agent's
+real planning/run lifecycle and long-term-memory protocol without exposing a
+provider API key or creating unbounded model cost.
+
 ## Upgrade and rollback
 
 ```bash

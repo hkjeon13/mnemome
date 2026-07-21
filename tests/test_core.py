@@ -94,3 +94,22 @@ async def test_correction_preserves_original_and_supersedes_it() -> None:
     assert [item.fact_id for item in await memory.application.recall("tenant-a", "timeout")] == [
         corrected.fact_id
     ]
+
+
+@pytest.mark.asyncio
+async def test_memory_kind_tags_and_metadata_are_preserved() -> None:
+    memory = Mnemome.in_memory()
+    await memory.initialize()
+    fact = await memory.application.create_fact(
+        "tenant-a",
+        "한국어 답변을 선호합니다",
+        sources=(SourceRef("profile", "user-1"),),
+        kind="preference",
+        tags=("language", "korean"),
+        metadata={"priority": "high"},
+    )
+
+    listed = await memory.application.list_facts("tenant-a", kind="preference")
+    assert listed == (fact,)
+    assert listed[0].tags == ("korean", "language")
+    assert listed[0].metadata == {"priority": "high"}

@@ -100,6 +100,25 @@ async def test_service_end_to_end_and_tenant_isolation(settings: Settings) -> No
             assert len(recall_a.json()["items"]) == 1
             assert recall_b.json()["items"] == []
 
+            direct_memory = await client.post(
+                "/v1/memory-facts",
+                headers=headers_a,
+                json={
+                    "statement": "Prefer concise summaries",
+                    "kind": "preference",
+                    "tags": ["style"],
+                },
+            )
+            assert direct_memory.status_code == 201
+            listed = await client.get(
+                "/v1/memory-facts",
+                headers=headers_a,
+                params={"kind": "preference"},
+            )
+            assert [item["fact_id"] for item in listed.json()["items"]] == [
+                direct_memory.json()["fact_id"]
+            ]
+
             replay = await client.get(f"/v1/runs/{run_id}/events", headers=headers_a)
             assert replay.status_code == 200
             assert "agent.event.recorded" in replay.text

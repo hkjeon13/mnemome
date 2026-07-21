@@ -89,3 +89,38 @@ class MnemomeClient:
         )
         response.raise_for_status()
         return response.json()["items"]
+
+    async def list_memories(
+        self, *, kind: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if kind:
+            params["kind"] = kind
+        response = await self._client.get("/v1/memory-facts", params=params)
+        response.raise_for_status()
+        return response.json()["items"]
+
+    async def create_memory(
+        self,
+        statement: str,
+        *,
+        kind: str = "fact",
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            "/v1/memory-facts",
+            json={
+                "statement": statement,
+                "kind": kind,
+                "tags": tags or [],
+                "metadata": metadata or {},
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def suppress_memory(self, fact_id: str) -> dict[str, Any]:
+        response = await self._client.post(f"/v1/memory-facts/{fact_id}:suppress")
+        response.raise_for_status()
+        return response.json()

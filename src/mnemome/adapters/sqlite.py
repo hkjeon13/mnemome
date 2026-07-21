@@ -108,6 +108,9 @@ class SqliteStores:
                 sources_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 supersedes_fact_id TEXT,
+                kind TEXT NOT NULL DEFAULT 'fact',
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
                 PRIMARY KEY (tenant_id, fact_id)
             );
             CREATE INDEX IF NOT EXISTS ix_memory_facts_tenant_status
@@ -125,7 +128,17 @@ class SqliteStores:
             );
             """
         )
+        self._ensure_column("memory_facts", "kind", "TEXT NOT NULL DEFAULT 'fact'")
+        self._ensure_column("memory_facts", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("memory_facts", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
         self._connection.commit()
+
+    def _ensure_column(self, table: str, column: str, declaration: str) -> None:
+        columns = {
+            row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     async def close(self) -> None:
         if self._connection is not None:
@@ -274,8 +287,15 @@ class SqliteStores:
         sources = [asdict(source) for source in fact.sources]
         async with self._lock:
             self.connection.execute(
-                """INSERT INTO memory_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(tenant_id, fact_id) DO UPDATE SET status=excluded.status""",
+                """INSERT INTO memory_facts
+                (tenant_id, fact_id, statement, confidence, status, sources_json, created_at,
+                 supersedes_fact_id, kind, tags_json, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, fact_id) DO UPDATE SET
+                  status=excluded.status, statement=excluded.statement,
+                  confidence=excluded.confidence, sources_json=excluded.sources_json,
+                  kind=excluded.kind, tags_json=excluded.tags_json,
+                  metadata_json=excluded.metadata_json""",
                 (
                     fact.tenant_id,
                     fact.fact_id,
@@ -285,6 +305,9 @@ class SqliteStores:
                     _json(sources),
                     fact.created_at.isoformat(),
                     fact.supersedes_fact_id,
+                    fact.kind,
+                    _json(fact.tags),
+                    _json(fact.metadata),
                 ),
             )
             self.connection.commit()
@@ -298,6 +321,9 @@ class SqliteStores:
             status=FactStatus(row["status"]),
             sources=tuple(SourceRef(**source) for source in json.loads(row["sources_json"])),
             created_at=_dt(row["created_at"]),
+            kind=row["kind"],
+            tags=tuple(json.loads(row["tags_json"])),
+            metadata=json.loads(row["metadata_json"]),
             supersedes_fact_id=row["supersedes_fact_id"],
         )
 
