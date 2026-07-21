@@ -14,10 +14,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      MNEMOME_MCP_URL: ${MNEMOME_MCP_URL:-https://assistant.fin-ally.net/mcp}
+      MNEMOME_MCP_URL: ${MNEMOME_MCP_URL:-http://host.docker.internal:31046/mcp}
       MNEMOME_MCP_TOOL_ALLOWLIST: ${MNEMOME_MCP_TOOL_ALLOWLIST:-sandbox_python_execute,search_retrieve,search_detail,company_search,stock_price,market_data,company_analysis}
     ports:
       - "${MNEMOME_BIND_ADDRESS:-127.0.0.1}:${MNEMOME_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - mnemome-data:/data
     security_opt:

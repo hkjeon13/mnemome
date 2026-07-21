@@ -54,6 +54,11 @@ company, finance, analysis, and sandboxed-calculation tools only. If MCP is
 temporarily unavailable, the request continues in memory-only mode and reports
 the fallback in its execution trace.
 
+The bundled Compose profile uses `host.docker.internal:31046` by default so a
+co-located AI Assistant MCP container is reached through its host-published
+port without hairpinning through the public HTTPS domain. Override
+`MNEMOME_MCP_URL` for a different deployment topology.
+
 ## Upgrade and rollback
 
 ```bash
