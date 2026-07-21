@@ -5,7 +5,6 @@ import os
 import secrets
 import time
 from collections import OrderedDict, deque
-from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -286,21 +285,7 @@ async def _run_lotte_agent(
         "tool_count": 0,
         "tools": [],
     }
-    async with AsyncExitStack() as stack:
-        agent_tools: list[Any] = []
-        if mcp_url:
-            try:
-                async with asyncio.timeout(12):
-                    discovered = await stack.enter_async_context(McpToolSpecClient(mcp_url))
-                agent_tools = [tool for tool in discovered if tool.name in allowed_tools]
-                mcp_status = {
-                    "status": "connected",
-                    "tool_count": len(agent_tools),
-                    "tools": sorted(tool.name for tool in agent_tools),
-                }
-            except Exception:
-                mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
-
+    async def execute_agent(agent_tools: list[Any]) -> tuple[Any, dict[str, Any] | None]:
         async with AsyncToolCallingAgent(
             model=live_model,
             tools=agent_tools,
@@ -334,6 +319,27 @@ async def _run_lotte_agent(
                     Path(artifact_path).unlink(missing_ok=True)
                 except OSError:
                     pass
+            return result, workflow_payload
+
+    if mcp_url:
+        connected = False
+        try:
+            async with McpToolSpecClient(mcp_url) as discovered:
+                connected = True
+                agent_tools = [tool for tool in discovered if tool.name in allowed_tools]
+                mcp_status = {
+                    "status": "connected",
+                    "tool_count": len(agent_tools),
+                    "tools": sorted(tool.name for tool in agent_tools),
+                }
+                result, workflow_payload = await execute_agent(agent_tools)
+        except Exception:
+            if connected:
+                raise
+            mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
+            result, workflow_payload = await execute_agent([])
+    else:
+        result, workflow_payload = await execute_agent([])
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
     return (
         result.text,
