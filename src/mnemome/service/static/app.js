@@ -426,10 +426,8 @@ async function sendChat(query) {
     if (!receivedDelta) responseText.textContent = result.answer;
     renderAnswerLinks(responseText, result.answer || responseText.textContent);
     appendMessageMeta(responseMessage, [
-      `${result.runtime}`,
       `recall ${result.recalled.length}`,
       `${result.elapsed_ms} ms`,
-      result.run_id.slice(0, 18),
     ]);
     renderAgentTrace(result);
     await loadMemories();

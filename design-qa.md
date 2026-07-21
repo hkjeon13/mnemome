@@ -96,4 +96,9 @@
 - Source evidence: user annotation on the `CONVERSATION · 대화` type label identified its tinted fill as unnecessary.
 - Fix: removed the label background while retaining the restrained violet text and semantic dot.
 
+**Answer metadata refinement**
+
+- Source evidence: user annotations identified the runtime class and truncated run ID as implementation details that added noise below each answer.
+- Fix: removed `AsyncToolCallingAgent` and the run ID from answer metadata while retaining recall count and elapsed time; full execution detail remains available in the trace sidebar.
+
 final result: passed
