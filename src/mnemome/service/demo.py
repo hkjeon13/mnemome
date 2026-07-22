@@ -17,6 +17,12 @@ from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
 from ..retrieval import recall_backend_label
+from .demo_imports import (
+    DemoImportPrepareBody,
+    DemoImportPreviewBody,
+    DemoImportProcessBody,
+    DemoImportStudio,
+)
 from .prompting import build_demo_prompt_template, load_preference_intent_policy
 
 DEMO_COOKIE = "mnemome_demo_session"
@@ -783,6 +789,7 @@ def build_demo_router() -> APIRouter:
     limiter = DemoRateLimiter()
     chat_limiter = DemoRateLimiter(requests_per_minute=6)
     global_chat_limiter = DemoRateLimiter(max_sessions=1, requests_per_minute=30)
+    import_studio = DemoImportStudio()
 
     @router.get("/")
     async def demo_root() -> RedirectResponse:
@@ -907,6 +914,43 @@ def build_demo_router() -> APIRouter:
         for memory in clearable:
             await application.suppress_fact(tenant_id, memory.fact_id)
         return {"cleared": len(clearable), "preserved": len(memories) - len(clearable)}
+
+    @router.post("/demo/api/imports/prepare")
+    async def prepare_import(
+        body: DemoImportPrepareBody,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        return await import_studio.prepare(tenant_id, body)
+
+    @router.post("/demo/api/imports/{preparation_id}/preview")
+    async def preview_import(
+        preparation_id: str,
+        body: DemoImportPreviewBody,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        return await import_studio.preview(tenant_id, preparation_id, body)
+
+    @router.post("/demo/api/imports/{preparation_id}/process")
+    async def process_import(
+        preparation_id: str,
+        body: DemoImportProcessBody,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        return await import_studio.process(
+            tenant_id,
+            preparation_id,
+            body,
+            request.app.state.application,
+        )
 
     @router.post("/demo/api/chat")
     async def chat(

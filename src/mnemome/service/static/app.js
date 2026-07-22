@@ -10,6 +10,12 @@ const state = {
   submitAfterComposition: false,
   culturalSnapshot: null,
   culturalArtifacts: [],
+  importSourceType: "local",
+  importRows: [],
+  importPreparationId: null,
+  importPreviewFresh: false,
+  importProcessingAllowed: false,
+  importBusy: false,
 };
 
 const elements = {
@@ -47,6 +53,36 @@ const elements = {
   traceSummary: document.querySelector("#trace-summary"),
   executionSteps: document.querySelector("#execution-steps"),
   memoryRoutes: document.querySelector("#memory-routes"),
+  importDialog: document.querySelector("#import-dialog"),
+  openImportStudio: document.querySelector("#open-import-studio"),
+  closeImportStudio: document.querySelector("#close-import-studio"),
+  importSourceTabs: document.querySelector(".import-source-tabs"),
+  importFile: document.querySelector("#import-file"),
+  importFileLabel: document.querySelector("#import-file-label"),
+  importHfRepo: document.querySelector("#import-hf-repo"),
+  importHfConfig: document.querySelector("#import-hf-config"),
+  importHfSplit: document.querySelector("#import-hf-split"),
+  importHfToken: document.querySelector("#import-hf-token"),
+  importInstructions: document.querySelector("#import-instructions"),
+  analyzeImportSource: document.querySelector("#analyze-import-source"),
+  importProfile: document.querySelector("#import-profile"),
+  importLayout: document.querySelector("#import-layout"),
+  importConfidence: document.querySelector("#import-confidence"),
+  importSessionKey: document.querySelector("#import-session-key"),
+  importOrderKey: document.querySelector("#import-order-key"),
+  importSourceSummary: document.querySelector("#import-source-summary"),
+  importOriginal: document.querySelector("#import-original code"),
+  importCode: document.querySelector("#import-code"),
+  importResult: document.querySelector("#import-result code"),
+  originalMeta: document.querySelector("#original-meta"),
+  codeMeta: document.querySelector("#code-meta"),
+  resultMeta: document.querySelector("#result-meta"),
+  importNotices: document.querySelector("#import-notices"),
+  importProgress: document.querySelector("#import-progress"),
+  importProgressTitle: document.querySelector("#import-progress-title"),
+  importProgressDetail: document.querySelector("#import-progress-detail"),
+  runImportPreview: document.querySelector("#run-import-preview"),
+  processImport: document.querySelector("#process-import"),
   toast: document.querySelector("#toast"),
 };
 
@@ -683,6 +719,201 @@ async function sendChat(query) {
   }
 }
 
+const importLayoutLabels = {
+  SESSION_PER_ROW: "1 row = 1 session",
+  TURN_PER_ROW: "여러 row = 1 session",
+  SESSION_FRAGMENT_PER_ROW: "Session fragments",
+  REUSED_SESSION_ID_SUSPECTED: "ID 재사용 의심",
+  MIXED_OR_AMBIGUOUS: "구조 확인 필요",
+};
+
+function prettyJson(value) {
+  const text = JSON.stringify(value, null, 2);
+  return text.length > 24000 ? `${text.slice(0, 24000)}\n… preview truncated` : text;
+}
+
+function setImportStatus(status, title, detail) {
+  elements.importProgress.className = `import-progress${status ? ` ${status}` : ""}`;
+  elements.importProgressTitle.textContent = title;
+  elements.importProgressDetail.textContent = detail;
+}
+
+function setImportBusy(busy) {
+  state.importBusy = busy;
+  elements.analyzeImportSource.disabled = busy;
+  elements.runImportPreview.disabled = busy || !state.importPreparationId;
+  elements.processImport.disabled = busy || !state.importPreviewFresh || !state.importProcessingAllowed;
+  elements.closeImportStudio.disabled = busy;
+}
+
+function invalidateImportPreview(message = "code가 변경되었습니다. preview를 다시 실행해 주세요.") {
+  state.importPreviewFresh = false;
+  elements.processImport.disabled = true;
+  if (state.importPreparationId) setImportStatus("", "Preview 확인 필요", message);
+}
+
+function renderImportWarnings(warnings = []) {
+  elements.importNotices.replaceChildren();
+  elements.importNotices.hidden = !warnings.length;
+  for (const warning of warnings) {
+    const item = document.createElement("span");
+    item.textContent = warning;
+    elements.importNotices.append(item);
+  }
+}
+
+function renderImportPayload(payload) {
+  state.importPreparationId = payload.preparation_id;
+  state.importPreviewFresh = true;
+  state.importProcessingAllowed = Boolean(payload.processing_allowed);
+  const profile = payload.profile || {};
+  const stats = payload.stats || {};
+  const source = payload.source || {};
+
+  elements.importProfile.hidden = false;
+  elements.importLayout.textContent = importLayoutLabels[profile.layout] || profile.layout || "—";
+  elements.importConfidence.textContent = `${Math.round((profile.confidence || 0) * 100)}%`;
+  elements.importSessionKey.textContent = profile.session_field || "row index";
+  elements.importOrderKey.textContent = profile.order_field || "source order";
+  elements.importSourceSummary.textContent = `${source.label || source.type || "source"} · ${Number(source.total_rows || 0).toLocaleString("ko-KR")} rows`;
+  elements.importOriginal.textContent = prettyJson(payload.original || []);
+  elements.importCode.value = payload.code || "";
+  elements.importCode.disabled = false;
+  elements.importResult.textContent = prettyJson(payload.result || []);
+  elements.originalMeta.textContent = `${(payload.original || []).length} head rows`;
+  elements.codeMeta.textContent = `${payload.generator || "generated"} · ${payload.code_digest || ""}`;
+  elements.resultMeta.textContent = `${stats.sessions || 0} sessions · ${stats.turns || 0} turns`;
+  renderImportWarnings(payload.warnings || []);
+
+  const canProcess = state.importProcessingAllowed;
+  setImportStatus(
+    canProcess ? "ready" : "error",
+    canProcess ? "Preview 준비 완료" : "Processing 전 확인이 필요합니다",
+    canProcess
+      ? `${stats.input_rows || 0} rows에서 ${stats.sessions || 0}개 session을 구성했습니다.`
+      : (payload.warnings || ["전체 처리 조건을 충족하지 못했습니다."]).at(-1),
+  );
+  setImportBusy(false);
+}
+
+async function parseImportFile(file) {
+  if (!file) return [];
+  if (file.size > 5 * 1024 * 1024) throw new Error("데모에서는 5MB 이하 JSON/JSONL 파일을 지원합니다.");
+  const text = await file.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const rows = text.split(/\r?\n/).filter((line) => line.trim());
+    try { parsed = rows.map((line) => JSON.parse(line)); }
+    catch { throw new Error("JSON 또는 JSONL 형식을 확인해 주세요."); }
+  }
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed.rows)) return parsed.rows;
+  if (Array.isArray(parsed.sessions)) return parsed.sessions;
+  if (Array.isArray(parsed.conversations)) return parsed.conversations;
+  if (parsed && typeof parsed === "object") return [parsed];
+  throw new Error("최상위 JSON은 object 또는 row 배열이어야 합니다.");
+}
+
+function resetImportPreparation() {
+  state.importPreparationId = null;
+  state.importPreviewFresh = false;
+  state.importProcessingAllowed = false;
+  elements.importProfile.hidden = true;
+  elements.importCode.disabled = true;
+  elements.runImportPreview.disabled = true;
+  elements.processImport.disabled = true;
+  renderImportWarnings([]);
+  setImportStatus("", "Source를 분석해 주세요", "preview에서는 메모리를 저장하지 않습니다.");
+}
+
+async function prepareImport() {
+  try {
+    let source;
+    if (state.importSourceType === "local") {
+      if (!state.importRows.length) throw new Error("먼저 JSON 또는 JSONL 파일을 선택해 주세요.");
+      if (state.importRows.length > 2000) throw new Error("데모에서는 local row 2,000개까지 처리합니다.");
+      source = {
+        type: "local",
+        file_name: elements.importFile.files[0]?.name || "local.json",
+      };
+    } else {
+      if (!elements.importHfRepo.value.trim()) throw new Error("Hugging Face Dataset ID를 입력해 주세요.");
+      source = {
+        type: "huggingface",
+        repo_id: elements.importHfRepo.value.trim(),
+        config: elements.importHfConfig.value.trim() || "default",
+        split: elements.importHfSplit.value.trim() || "train",
+        token: elements.importHfToken.value.trim() || null,
+      };
+    }
+    setImportBusy(true);
+    setImportStatus("busy", "샘플 구조를 분석하는 중", "layout을 판별하고 transform code를 생성합니다.");
+    const payload = await api("/demo/api/imports/prepare", {
+      method: "POST",
+      body: JSON.stringify({
+        source,
+        rows: state.importSourceType === "local" ? state.importRows : [],
+        instructions: elements.importInstructions.value.trim(),
+        sample_size: 5,
+      }),
+    });
+    elements.importHfToken.value = "";
+    renderImportPayload(payload);
+  } catch (error) {
+    setImportBusy(false);
+    setImportStatus("error", "샘플 분석 실패", error.message);
+    showToast(error.message, "error");
+  }
+}
+
+async function runImportPreview() {
+  if (!state.importPreparationId) return;
+  setImportBusy(true);
+  setImportStatus("busy", "수정한 code를 실행하는 중", "sample row만 안전한 제한형 evaluator로 처리합니다.");
+  try {
+    const payload = await api(`/demo/api/imports/${encodeURIComponent(state.importPreparationId)}/preview`, {
+      method: "POST",
+      body: JSON.stringify({ code: elements.importCode.value, sample_size: 5 }),
+    });
+    renderImportPayload(payload);
+  } catch (error) {
+    setImportBusy(false);
+    state.importPreviewFresh = false;
+    setImportStatus("error", "Preview 실행 실패", error.message);
+    showToast(error.message, "error");
+  }
+}
+
+async function processImport() {
+  if (!state.importPreparationId || !state.importPreviewFresh) return;
+  setImportBusy(true);
+  setImportStatus("busy", "전체 데이터를 처리하는 중", "row 변환 · session grouping · 대화 메모리 적재");
+  try {
+    const result = await api(`/demo/api/imports/${encodeURIComponent(state.importPreparationId)}/process`, {
+      method: "POST",
+      body: JSON.stringify({ code: elements.importCode.value }),
+    });
+    await loadMemories();
+    setImportStatus(
+      "complete",
+      `대화 메모리 ${result.created}개를 저장했습니다`,
+      `${result.sessions} sessions · ${result.turns} turns · duplicate ${result.duplicates}`,
+    );
+    state.importPreviewFresh = false;
+    elements.processImport.disabled = true;
+    showSidebarView("memory");
+    showToast(`가져오기가 완료되었습니다. 대화 메모리 ${result.created}개를 저장했습니다.`);
+  } catch (error) {
+    setImportStatus("error", "Processing 실패", error.message);
+    showToast(error.message, "error");
+  } finally {
+    setImportBusy(false);
+    elements.processImport.disabled = true;
+  }
+}
+
 elements.memorySearch.addEventListener("input", (event) => {
   state.query = event.target.value;
   renderMemories();
@@ -695,6 +926,51 @@ elements.filterTabs.addEventListener("click", (event) => {
   for (const tab of elements.filterTabs.querySelectorAll("button")) tab.classList.toggle("active", tab === button);
   renderMemories();
 });
+
+elements.openImportStudio.addEventListener("click", () => elements.importDialog.showModal());
+elements.closeImportStudio.addEventListener("click", () => {
+  if (!state.importBusy) elements.importDialog.close();
+});
+elements.importDialog.addEventListener("cancel", (event) => {
+  if (state.importBusy) event.preventDefault();
+});
+elements.importSourceTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-import-source]");
+  if (!button || state.importBusy) return;
+  state.importSourceType = button.dataset.importSource;
+  for (const tab of elements.importSourceTabs.querySelectorAll("button")) {
+    const active = tab === button;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  }
+  for (const panel of elements.importDialog.querySelectorAll("[data-import-source-panel]")) {
+    panel.hidden = panel.dataset.importSourcePanel !== state.importSourceType;
+  }
+  resetImportPreparation();
+});
+elements.importFile.addEventListener("change", async () => {
+  const file = elements.importFile.files[0];
+  resetImportPreparation();
+  if (!file) {
+    state.importRows = [];
+    elements.importFileLabel.textContent = "JSON 또는 JSONL 선택";
+    return;
+  }
+  elements.importFileLabel.textContent = file.name;
+  setImportStatus("busy", "파일을 읽는 중", `${(file.size / 1024).toFixed(1)} KB`);
+  try {
+    state.importRows = await parseImportFile(file);
+    setImportStatus("ready", `${state.importRows.length.toLocaleString("ko-KR")} rows 준비됨`, "샘플 분석을 실행해 주세요.");
+  } catch (error) {
+    state.importRows = [];
+    setImportStatus("error", "파일을 읽지 못했습니다", error.message);
+    showToast(error.message, "error");
+  }
+});
+elements.analyzeImportSource.addEventListener("click", prepareImport);
+elements.importCode.addEventListener("input", () => invalidateImportPreview());
+elements.runImportPreview.addEventListener("click", runImportPreview);
+elements.processImport.addEventListener("click", processImport);
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
 elements.openNewConversation.addEventListener("click", () => {

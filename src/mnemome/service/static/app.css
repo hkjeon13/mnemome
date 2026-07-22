@@ -70,6 +70,7 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .memory-panel.is-collapsed .sidebar-tabs,
 .memory-panel.is-collapsed .trace-section,
 .memory-panel.is-collapsed .sidebar-view,
+.memory-panel.is-collapsed .import-button,
 .memory-panel.is-collapsed .add-button,
 .memory-panel.is-collapsed .new-conversation-button,
 .memory-panel.is-collapsed .clear-button { display: none !important; }
@@ -143,7 +144,10 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .search-field { display: flex; flex: 1; align-items: center; gap: 0.4375rem; padding: 0 0.625rem; border: 0.0625rem solid var(--line); border-radius: 0.625rem; background: #fff; }
 .search-field svg { width: 0.875rem; fill: none; stroke: var(--muted); stroke-width: 1.6; }
 .search-field input { width: 100%; padding: 0.625rem 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 0.75rem; }
-.add-button, .new-conversation-button, .clear-button, .collapse-button { border-radius: 0.625rem; font-size: 0.6875rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.import-button, .add-button, .new-conversation-button, .clear-button, .collapse-button { border-radius: 0.625rem; font-size: 0.6875rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.import-button { display: grid; flex: 0 0 auto; width: 2.375rem; height: 2.375rem; place-items: center; padding: 0; border: 0.0625rem solid #cfd8d2; background: #f4f8f5; color: #426d54; }
+.import-button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.import-button:hover { border-color: #85a68f; color: #275f3d; background: #eaf3ed; }
 .add-button { width: 2.375rem; height: 2.375rem; padding: 0; border: 0.0625rem solid #d7d7d7; background: #fff; color: var(--text); font-size: 1.25rem; font-weight: 400; }
 .add-button:hover { border-color: #999; background: #f5f5f5; }
 .new-conversation-button { display: grid; flex: 0 0 auto; width: 2.375rem; height: 2.375rem; place-items: center; padding: 0; border: 0.0625rem solid #d7d7d7; background: #fff; color: #555555; }
@@ -249,6 +253,82 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(0.3125
 .danger-button { border: 0; background: #8f3d3d; color: #fff; }
 .danger-button:hover { background: #763232; }
 
+.import-dialog { width: min(92rem, calc(100% - 2rem)); max-width: none; height: min(55rem, calc(100dvh - 2rem)); max-height: none; border-radius: 1.125rem; overflow: hidden; }
+.import-dialog[open] { display: block; }
+.import-shell { display: grid; height: 100%; min-height: 0; grid-template-rows: auto auto auto minmax(0, 1fr) auto auto; background: #fff; }
+.import-header { display: flex; grid-row: 1; align-items: flex-start; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 1rem; border-bottom: 0.0625rem solid var(--line); }
+.import-header h2 { margin: 0; font-size: 1.375rem; letter-spacing: -0.035em; }
+.import-header p { margin: 0.375rem 0 0; color: var(--muted); font-size: 0.6875rem; }
+.import-close { flex: 0 0 auto; width: 2.25rem; height: 2.25rem; border-radius: 0.625rem; }
+.import-close:hover { background: #f2f2f2; color: #222; }
+
+.import-source-bar { display: grid; grid-row: 2; grid-template-columns: auto minmax(18rem, 1.4fr) minmax(13rem, 0.8fr) auto; align-items: end; gap: 0.75rem; padding: 0.875rem 1.5rem; border-bottom: 0.0625rem solid var(--line); background: #fafafa; }
+.import-source-tabs { display: flex; align-self: stretch; padding: 0.1875rem; border: 0.0625rem solid #ddd; border-radius: 0.625rem; background: #fff; }
+.import-source-tabs button { padding: 0.5rem 0.6875rem; border: 0; border-radius: 0.4375rem; background: transparent; color: var(--muted); font-size: 0.625rem; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.import-source-tabs button.active { background: #ededed; color: #222; }
+.import-source-fields { min-width: 0; }
+.import-source-fields[hidden] { display: none; }
+.import-file-field { display: flex; min-height: 3rem; align-items: center; gap: 0.625rem; padding: 0.5rem 0.6875rem; border: 0.0625rem dashed #c8c8c8; border-radius: 0.625rem; background: #fff; cursor: pointer; }
+.import-file-field:hover { border-color: #909090; background: #fdfdfd; }
+.import-file-field svg { flex: 0 0 auto; width: 1.125rem; fill: none; stroke: #666; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.import-file-field span { min-width: 0; }
+.import-file-field strong, .import-file-field small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-file-field strong { color: #333; font-size: 0.6875rem; }
+.import-file-field small { margin-top: 0.1875rem; color: #888; font-size: 0.5rem; }
+.import-file-field input { position: absolute; width: 0.0625rem; height: 0.0625rem; opacity: 0; pointer-events: none; }
+.hf-source-fields { display: grid; grid-template-columns: minmax(11rem, 1.5fr) minmax(5rem, 0.7fr) minmax(5rem, 0.6fr) minmax(8rem, 1fr); gap: 0.5rem; }
+.hf-source-fields label, .import-instructions-field { min-width: 0; }
+.hf-source-fields label > span, .import-instructions-field > span { display: block; margin-bottom: 0.3125rem; color: #555; font-size: 0.5625rem; font-weight: 750; }
+.hf-source-fields label small, .import-instructions-field small { color: #999; font-weight: 500; }
+.hf-source-fields input, .import-instructions-field input { width: 100%; height: 2.25rem; padding: 0 0.625rem; border: 0.0625rem solid #ddd; border-radius: 0.5rem; outline: 0; background: #fff; font-size: 0.6875rem; }
+.hf-source-fields input:focus, .import-instructions-field input:focus { border-color: #888; }
+.import-analyze-button { display: inline-flex; height: 2.5rem; align-items: center; justify-content: center; gap: 0.375rem; padding: 0 0.875rem; border: 0; border-radius: 0.5625rem; background: #292929; color: #fff; font-size: 0.6875rem; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.import-analyze-button:hover:not(:disabled) { background: #111; }
+.import-analyze-button:disabled { opacity: 0.5; cursor: wait; }
+.import-analyze-button svg { width: 0.875rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+.import-profile { display: grid; grid-row: 3; grid-template-columns: repeat(4, minmax(7rem, auto)) minmax(12rem, 1fr); gap: 0; padding: 0.625rem 1.5rem; border-bottom: 0.0625rem solid var(--line); background: #fff; }
+.import-profile[hidden] { display: none; }
+.import-profile > div { min-width: 0; padding: 0 0.875rem; border-left: 0.0625rem solid #e8e8e8; }
+.import-profile > div:first-child { padding-left: 0; border-left: 0; }
+.import-profile span, .import-profile strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-profile span { color: #999; font-size: 0.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.import-profile strong { margin-top: 0.1875rem; color: #333; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.625rem; }
+.import-profile-source { text-align: right; }
+
+.import-workbench { display: grid; min-height: 0; grid-row: 4; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; padding: 0.875rem 1.5rem; background: #f7f7f7; }
+.import-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border: 0.0625rem solid #dedede; border-radius: 0.75rem; background: #fff; }
+.import-pane > header { display: flex; min-height: 3.75rem; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6875rem 0.8125rem; border-bottom: 0.0625rem solid #e4e4e4; }
+.import-pane header > div > span { display: block; color: #7b7b7b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.5rem; font-weight: 800; letter-spacing: 0.1em; }
+.import-pane h3 { margin: 0.1875rem 0 0; font-size: 0.8125rem; }
+.pane-meta { max-width: 48%; overflow: hidden; color: #8a8a8a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.5rem; text-overflow: ellipsis; white-space: nowrap; }
+.import-pane pre, .import-pane textarea { flex: 1; min-height: 0; margin: 0; padding: 0.875rem; overflow: auto; border: 0; outline: 0; background: #fcfcfc; color: #373737; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.625rem; line-height: 1.65; tab-size: 4; white-space: pre; }
+.import-pane pre code { font: inherit; }
+.import-pane textarea { width: 100%; resize: none; background: #222; color: #e9e9e9; caret-color: #fff; }
+.import-pane textarea:disabled { color: #aaa; cursor: not-allowed; }
+.code-pane { border-color: #cfcfcf; }
+.code-pane > header { background: #292929; color: #fff; border-bottom-color: #444; }
+.code-pane header > div > span, .code-pane .pane-meta { color: #aaa; }
+.result-pane pre { background: #f9fcfa; }
+
+.import-notices { display: flex; grid-row: 5; flex-wrap: wrap; gap: 0.375rem; padding: 0 1.5rem 0.75rem; background: #f7f7f7; }
+.import-notices[hidden] { display: none; }
+.import-notices span { padding: 0.3125rem 0.5rem; border: 0.0625rem solid #ddd8ca; border-radius: 0.375rem; background: #fffdf7; color: #735f35; font-size: 0.5625rem; }
+
+.import-footer { display: flex; min-height: 4.5rem; grid-row: 6; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1.5rem; border-top: 0.0625rem solid var(--line); background: #fff; }
+.import-progress { display: flex; min-width: 0; align-items: center; gap: 0.625rem; }
+.import-progress-dot { flex: 0 0 auto; width: 0.5625rem; height: 0.5625rem; border: 0.125rem solid #c9c9c9; border-radius: 50%; }
+.import-progress.ready .import-progress-dot { border-color: #4e8061; background: #4e8061; }
+.import-progress.busy .import-progress-dot { border-color: #bbb; border-top-color: #333; animation: step-spin 0.8s linear infinite; }
+.import-progress.complete .import-progress-dot { border-color: #4e8061; background: #4e8061; box-shadow: 0 0 0 0.25rem #eaf3ed; }
+.import-progress.error .import-progress-dot { border-color: #9a5656; background: #9a5656; }
+.import-progress strong, .import-progress small { display: block; }
+.import-progress strong { overflow: hidden; color: #333; font-size: 0.6875rem; text-overflow: ellipsis; white-space: nowrap; }
+.import-progress small { margin-top: 0.1875rem; color: #858585; font-size: 0.5625rem; }
+.import-actions { display: flex; gap: 0.5rem; }
+.import-actions button { min-width: 7rem; }
+.import-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .toast { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 10; max-width: 20.625rem; padding: 0.75rem 0.9375rem; border: 0.0625rem solid var(--line); border-radius: 0.625rem; background: #fff; color: var(--text); box-shadow: var(--shadow); font-size: 0.75rem; opacity: 0; transform: translateY(0.625rem); pointer-events: none; transition: 0.25s ease; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { border-color: #bdbdbd; color: var(--danger); }
@@ -274,9 +354,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(0.3125
   .memory-panel:not(.is-collapsed) .panel-heading > div:first-child { width: 100%; }
   .memory-panel:not(.is-collapsed) .panel-heading h2 { white-space: nowrap; }
   .memory-panel:not(.is-collapsed) .memory-actions { width: 100%; gap: 0.3125rem; }
-  .memory-panel:not(.is-collapsed) :is(.add-button, .new-conversation-button, .clear-button, .collapse-button) { width: 2rem; height: 2rem; border-radius: 0.5rem; }
+  .memory-panel:not(.is-collapsed) :is(.import-button, .add-button, .new-conversation-button, .clear-button, .collapse-button) { width: 2rem; height: 2rem; border-radius: 0.5rem; }
   .memory-panel:not(.is-collapsed) .add-button { font-size: 1.125rem; }
-  .memory-panel:not(.is-collapsed) :is(.new-conversation-button, .clear-button) svg { width: 0.875rem; height: 0.875rem; }
+  .memory-panel:not(.is-collapsed) :is(.import-button, .new-conversation-button, .clear-button) svg { width: 0.875rem; height: 0.875rem; }
   .memory-panel:not(.is-collapsed) .collapse-button img { width: 0.9375rem; height: 0.9375rem; }
   .memory-toolbar { flex-wrap: wrap; }
   .memory-toolbar .search-field { flex-basis: 100%; }
@@ -296,4 +376,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(0.3125
   .execution-step .step-state { grid-column: 2; }
   .memory-route { grid-template-columns: 3rem minmax(0, 1fr); }
   .memory-route .route-state { grid-column: 2; }
+  .import-dialog { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .import-header { padding: 1rem; }
+  .import-header p { display: none; }
+  .import-source-bar { grid-template-columns: 1fr auto; padding: 0.75rem 1rem; }
+  .import-source-tabs, .import-source-fields, .import-instructions-field { grid-column: 1 / -1; }
+  .hf-source-fields { grid-template-columns: 1fr 1fr; }
+  .import-profile { grid-template-columns: 1fr 1fr; padding: 0.625rem 1rem; }
+  .import-profile > div { padding: 0.375rem 0.5rem; border-left: 0; }
+  .import-profile-source { grid-column: 1 / -1; text-align: left; }
+  .import-workbench { grid-template-columns: 1fr; overflow-y: auto; padding: 0.75rem 1rem; }
+  .import-pane { min-height: 18rem; }
+  .import-footer { align-items: flex-start; flex-direction: column; padding: 0.75rem 1rem; }
+  .import-actions { width: 100%; }
+  .import-actions button { flex: 1; }
 }

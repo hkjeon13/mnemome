@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260721-streaming-markdown" />
+    <link rel="stylesheet" href="/static/app.css?v=20260722-import-studio-2" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -82,6 +82,13 @@
               <h2>내 메모리</h2>
             </div>
             <div class="memory-actions">
+              <button class="import-button" id="open-import-studio" type="button" aria-label="대화 데이터 가져오기" title="대화 데이터 가져오기">
+                <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-upload">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="m17 8-5-5-5 5" />
+                  <path d="M12 3v12" />
+                </svg>
+              </button>
               <button class="add-button" id="open-memory-form" type="button" aria-label="기억 추가" title="기억 추가">+</button>
               <button class="new-conversation-button" id="open-new-conversation" type="button" aria-label="새 대화" title="새 대화">
                 <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="lucide-refresh-cw">
@@ -188,6 +195,90 @@
       </section>
     </main>
 
+    <dialog class="import-dialog" id="import-dialog">
+      <div class="import-shell">
+        <header class="import-header">
+          <div>
+            <span class="panel-kicker">CONVERSATION IMPORT STUDIO</span>
+            <h2>대화 데이터 가져오기</h2>
+            <p>샘플 row를 session 대화로 변환해 확인한 뒤 메모리에 적재합니다.</p>
+          </div>
+          <button class="icon-button import-close" id="close-import-studio" type="button" aria-label="가져오기 창 닫기">×</button>
+        </header>
+
+        <section class="import-source-bar" aria-label="가져오기 원본 설정">
+          <div class="import-source-tabs" role="tablist" aria-label="원본 유형">
+            <button class="active" data-import-source="local" type="button" role="tab" aria-selected="true">파일 업로드</button>
+            <button data-import-source="huggingface" type="button" role="tab" aria-selected="false">Hugging Face</button>
+          </div>
+
+          <div class="import-source-fields local-source-fields" data-import-source-panel="local">
+            <label class="import-file-field" for="import-file">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 2v6h6" />
+              </svg>
+              <span><strong id="import-file-label">JSON 또는 JSONL 선택</strong><small>최대 2,000 rows · 브라우저에서 먼저 읽습니다</small></span>
+              <input id="import-file" type="file" accept=".json,.jsonl,application/json,application/x-ndjson" />
+            </label>
+          </div>
+
+          <div class="import-source-fields hf-source-fields" data-import-source-panel="huggingface" hidden>
+            <label><span>Dataset ID</span><input id="import-hf-repo" type="text" placeholder="organization/dataset" autocomplete="off" /></label>
+            <label><span>Config</span><input id="import-hf-config" type="text" value="default" autocomplete="off" /></label>
+            <label><span>Split</span><input id="import-hf-split" type="text" value="train" autocomplete="off" /></label>
+            <label class="hf-token-field"><span>Read token <small>선택</small></span><input id="import-hf-token" type="password" placeholder="hf_..." autocomplete="off" /></label>
+          </div>
+
+          <label class="import-instructions-field">
+            <span>변환 힌트 <small>선택</small></span>
+            <input id="import-instructions" type="text" placeholder="예: dialogue_id로 묶고 turn_index 순서로 정렬" />
+          </label>
+          <button class="import-analyze-button" id="analyze-import-source" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M18.4 5.6 16.3 7.7" /><path d="M21 12h-3" /><path d="M6 12H3" /><path d="m7.7 7.7-2.1-2.1" /><circle cx="12" cy="12" r="3" /><path d="M8 17h8" /><path d="M9 21h6" /></svg>
+            샘플 분석
+          </button>
+        </section>
+
+        <section class="import-profile" id="import-profile" hidden aria-live="polite">
+          <div><span>감지된 구조</span><strong id="import-layout">—</strong></div>
+          <div><span>신뢰도</span><strong id="import-confidence">—</strong></div>
+          <div><span>Session key</span><strong id="import-session-key">—</strong></div>
+          <div><span>Turn order</span><strong id="import-order-key">—</strong></div>
+          <div class="import-profile-source"><span>Source</span><strong id="import-source-summary">—</strong></div>
+        </section>
+
+        <section class="import-workbench" aria-label="가져오기 변환 미리보기">
+          <article class="import-pane original-pane">
+            <header><div><span>01 · ORIGINAL</span><h3>원본 sample</h3></div><span class="pane-meta" id="original-meta">source를 선택하세요</span></header>
+            <pre id="import-original"><code>JSON/JSONL 파일 또는 Hugging Face dataset을 선택하면\nhead row가 여기에 표시됩니다.</code></pre>
+          </article>
+          <article class="import-pane code-pane">
+            <header><div><span>02 · TRANSFORM</span><h3>변환 code</h3></div><span class="pane-meta" id="code-meta">editable Python</span></header>
+            <textarea id="import-code" aria-label="변환 코드" spellcheck="false" disabled>def transform(row, ctx):
+    return row</textarea>
+          </article>
+          <article class="import-pane result-pane">
+            <header><div><span>03 · RESULT</span><h3>Session preview</h3></div><span class="pane-meta" id="result-meta">canonical output</span></header>
+            <pre id="import-result"><code>분석이 끝나면 sessionId와 conversation[] 결과가\n여기에 표시됩니다.</code></pre>
+          </article>
+        </section>
+
+        <section class="import-notices" id="import-notices" hidden aria-live="polite"></section>
+
+        <footer class="import-footer">
+          <div class="import-progress" id="import-progress">
+            <span class="import-progress-dot"></span>
+            <div><strong id="import-progress-title">Source를 준비해 주세요</strong><small id="import-progress-detail">preview에서는 메모리를 저장하지 않습니다.</small></div>
+          </div>
+          <div class="import-actions">
+            <button class="secondary-button" id="run-import-preview" type="button" disabled>Run preview</button>
+            <button class="primary-button" id="process-import" type="button" disabled>Processing</button>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+
     <dialog id="memory-dialog">
       <form method="dialog" class="dialog-card" id="memory-form">
         <div class="dialog-heading">
@@ -266,6 +357,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260722-mobile-new-conversation" defer></script>
+    <script src="/static/app.js?v=20260722-import-studio-2" defer></script>
   </body>
 </html>
