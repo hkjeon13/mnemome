@@ -334,7 +334,7 @@ function openConversationMemory(memory) {
   if (query) appendMessage("user", query);
   const answer = memory.conversation?.answer || memory.content;
   const responseMessage = appendMessage("assistant", answer);
-  renderAnswerMarkdown(responseMessage.querySelector("p"), answer);
+  renderAnswerLinks(responseMessage.querySelector("p"), answer);
   state.selectedMemoryId = memory.id;
   renderMemories();
   elements.chatInput.value = "";
@@ -352,57 +352,28 @@ function sourceLabel(urlValue) {
       ["yna.co.kr", "연합뉴스 기사"],
       ["news.naver.com", "네이버 뉴스"],
     ];
-    const knownSource = knownSources.find(
-      ([domain]) => host === domain || host.endsWith(`.${domain}`),
-    );
-    return knownSource?.[1] || `${host} 출처`;
+    return knownSources.find(([domain]) => host.endsWith(domain))?.[1] || `${host} 출처`;
   } catch {
     return "출처 보기";
   }
 }
 
-function renderAnswerMarkdown(element, text) {
+function renderAnswerLinks(element, text) {
   element.replaceChildren();
-  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)|\*\*([^\n]+?)\*\*/g;
+  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     element.append(document.createTextNode(text.slice(cursor, match.index)));
-    if (match[4] !== undefined) {
-      const strong = document.createElement("strong");
-      strong.textContent = match[4];
-      element.append(strong);
-    } else {
-      const url = match[2] || match[3];
-      const link = document.createElement("a");
-      link.href = url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = match[1] || sourceLabel(url);
-      element.append(link);
-    }
+    const url = match[2] || match[3];
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = match[1] || sourceLabel(url);
+    element.append(link);
     cursor = match.index + match[0].length;
   }
   element.append(document.createTextNode(text.slice(cursor)));
-}
-
-function pendingStreamingMarkdownStart(text) {
-  const markdownTail = text.match(/\[[^\]\n]*\]\(https?:\/\/[^\s)]*$/);
-  const bareUrlTail = text.match(/https?:\/\/[^\s<>()]*$/);
-  let strongTailStart = null;
-  for (const match of text.matchAll(/\*\*/g)) {
-    strongTailStart = strongTailStart === null ? match.index : null;
-  }
-  const starts = [markdownTail, bareUrlTail]
-    .filter(Boolean)
-    .map((match) => match.index);
-  if (strongTailStart !== null) starts.push(strongTailStart);
-  return starts.length ? Math.min(...starts) : text.length;
-}
-
-function renderStreamingAnswerMarkdown(element, text) {
-  const pendingStart = pendingStreamingMarkdownStart(text);
-  renderAnswerMarkdown(element, text.slice(0, pendingStart));
-  element.append(document.createTextNode(text.slice(pendingStart)));
 }
 
 function planStepKey(step) {
@@ -580,27 +551,11 @@ async function sendChat(query) {
   const responseMessage = appendMessage("assistant", "");
   const responseText = responseMessage.querySelector("p");
   responseText.setAttribute("aria-label", "실행 계획 생성 중");
-  responseMessage.setAttribute("aria-busy", "true");
   responseMessage.classList.add("typing");
   let receivedDelta = false;
-  let streamedAnswer = "";
-  let answerRenderFrame = null;
   let result = null;
   let plannedSteps = [];
   let stepStatuses = new Map();
-  const cancelAnswerRender = () => {
-    if (answerRenderFrame === null) return;
-    cancelAnimationFrame(answerRenderFrame);
-    answerRenderFrame = null;
-  };
-  const scheduleAnswerRender = () => {
-    if (answerRenderFrame !== null) return;
-    answerRenderFrame = requestAnimationFrame(() => {
-      answerRenderFrame = null;
-      renderStreamingAnswerMarkdown(responseText, streamedAnswer);
-      elements.conversation.scrollTop = elements.conversation.scrollHeight;
-    });
-  };
   try {
     await streamApi(
       "/demo/api/chat/stream",
@@ -634,8 +589,6 @@ async function sendChat(query) {
           }
           elements.conversation.scrollTop = elements.conversation.scrollHeight;
         } else if (event === "delta") {
-          const delta = payload.delta || "";
-          if (!delta) return;
           if (!receivedDelta) {
             receivedDelta = true;
             responseText.textContent = "";
@@ -643,17 +596,16 @@ async function sendChat(query) {
             responseText.className = "";
             responseMessage.classList.remove("typing");
           }
-          streamedAnswer += delta;
-          scheduleAnswerRender();
+          responseText.textContent += payload.delta || "";
+          elements.conversation.scrollTop = elements.conversation.scrollHeight;
         } else if (event === "complete") result = payload;
         else if (event === "error") throw new Error(payload.message || "응답 스트림이 중단되었습니다.");
       },
     );
     if (!result) throw new Error("완료되지 않은 응답 스트림입니다.");
-    cancelAnswerRender();
     responseMessage.classList.remove("typing");
-    renderAnswerMarkdown(responseText, result.answer || streamedAnswer);
-    responseMessage.removeAttribute("aria-busy");
+    if (!receivedDelta) responseText.textContent = result.answer;
+    renderAnswerLinks(responseText, result.answer || responseText.textContent);
     appendMessageMeta(responseMessage, [
       `recall ${result.recalled.length}`,
       `${result.elapsed_ms} ms`,
@@ -662,19 +614,14 @@ async function sendChat(query) {
     await loadMemories();
     if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
-    cancelAnswerRender();
     responseMessage.classList.remove("typing");
     responseText.removeAttribute("aria-label");
     responseText.className = "";
     const errorText = error.name === "AbortError"
       ? "응답 생성을 중지했습니다."
       : `실행 중 문제가 발생했습니다: ${error.message}`;
-    const partialAnswer = receivedDelta ? `${streamedAnswer}\n\n${errorText}` : errorText;
-    renderAnswerMarkdown(responseText, partialAnswer);
-    responseMessage.removeAttribute("aria-busy");
+    responseText.textContent = receivedDelta ? `${responseText.textContent}\n\n${errorText}` : errorText;
   } finally {
-    cancelAnswerRender();
-    responseMessage.removeAttribute("aria-busy");
     state.abortController = null;
     setChatBusy(false);
     elements.chatInput.focus({ preventScroll: true });
