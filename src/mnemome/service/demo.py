@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
 from ..retrieval import recall_backend_label
-from .prompting import build_demo_prompt_template
+from .prompting import build_demo_prompt_template, load_preference_intent_policy
 
 DEMO_COOKIE = "mnemome_demo_session"
 DEMO_TENANT_PREFIX = "demo_"
@@ -35,6 +35,44 @@ DEFAULT_MCP_TOOLS = (
 )
 
 logger = logging.getLogger("mnemome.service.demo")
+
+
+async def _assess_preference_write(model: Any, query: str) -> dict[str, Any]:
+    fallback = {
+        "durable": False,
+        "condition": None,
+        "action": None,
+        "execute_now": False,
+        "decision_owner": "agent_llm",
+        "status": "unavailable",
+    }
+    try:
+        output = await model.generate(
+            [
+                {"role": "system", "content": load_preference_intent_policy()},
+                {"role": "user", "content": query},
+            ]
+        )
+        raw = str(output.text or "").strip()
+        if raw.startswith("```"):
+            raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        payload = json.loads(raw)
+        durable = payload.get("durable") is True
+        condition = str(payload.get("condition") or "").strip() or None
+        action = str(payload.get("action") or "").strip() or None
+        if durable and (not condition or not action):
+            return fallback
+        return {
+            "durable": durable,
+            "condition": condition if durable else None,
+            "action": action if durable else None,
+            "execute_now": payload.get("execute_now") is True,
+            "decision_owner": "agent_llm",
+            "status": "decided",
+        }
+    except Exception:
+        logger.exception("Agent preference intent decision failed")
+        return fallback
 
 
 def _preference_candidate(entry: Any) -> dict[str, Any]:
@@ -361,37 +399,6 @@ async def _run_lotte_agent(
         )
         for artifact in cultural_artifacts
     ) or "- 적용할 문화적 기억 없음"
-    agent_metadata = {
-        "language": "ko",
-        "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
-        "current_user_request": query,
-        "mnemome": {
-            "cultural_principles": cultural_context,
-        },
-        "plan_prerequisites": {
-            "mnemome": {
-                "preference_application": {
-                    "decision_owner": "planner_llm",
-                    "current_request": query,
-                    "instruction": (
-                        "Evaluate every candidate condition semantically against current_request. "
-                        "Use its action only when the condition applies. Presence in candidates "
-                        "does not mean it applies. For legacy_unstructured candidates, infer "
-                        "condition and action from raw_rule before deciding."
-                    ),
-                },
-                "preference_candidates": [
-                    _preference_candidate(entry) for entry in preferences
-                ],
-                "recalled_memories": [
-                    {"kind": entry.kind.value, "content": entry.content}
-                    for entry in recalled
-                    if entry.kind != MemoryEntryKind.PREFERENCE
-                ],
-            }
-        },
-    }
-
     async def remember_preference(condition: str, action: str) -> dict[str, str]:
         nonlocal captured_preference, preferences, recalled
         normalized_condition = " ".join(condition.split())
@@ -450,6 +457,48 @@ async def _run_lotte_agent(
             "condition": normalized_condition,
             "action": normalized_action,
         }
+
+    preference_write_decision = await _assess_preference_write(live_model, query)
+    if preference_write_decision["durable"]:
+        result = await remember_preference(
+            str(preference_write_decision["condition"]),
+            str(preference_write_decision["action"]),
+        )
+        preference_write_decision["storage_status"] = result["status"]
+    else:
+        preference_write_decision["storage_status"] = "not_requested"
+
+    agent_metadata = {
+        "language": "ko",
+        "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
+        "current_user_request": query,
+        "mnemome": {
+            "cultural_principles": cultural_context,
+        },
+        "plan_prerequisites": {
+            "mnemome": {
+                "preference_write_decision": preference_write_decision,
+                "preference_application": {
+                    "decision_owner": "planner_llm",
+                    "current_request": query,
+                    "instruction": (
+                        "Evaluate every candidate condition semantically against current_request. "
+                        "Use its action only when the condition applies. Presence in candidates "
+                        "does not mean it applies. For legacy_unstructured candidates, infer "
+                        "condition and action from raw_rule before deciding."
+                    ),
+                },
+                "preference_candidates": [
+                    _preference_candidate(entry) for entry in preferences
+                ],
+                "recalled_memories": [
+                    {"kind": entry.kind.value, "content": entry.content}
+                    for entry in recalled
+                    if entry.kind != MemoryEntryKind.PREFERENCE
+                ],
+            }
+        },
+    }
 
     memory_tool = ToolSpec(
         name="remember_preference",

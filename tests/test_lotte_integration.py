@@ -126,6 +126,22 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             del args, kwargs
             message_text = str(messages)
             seen_messages.append(message_text)
+            if "semantic preference-intent decision stage" in message_text:
+                durable = "이 규칙을 선호로 저장해줘" in message_text
+                text = json.dumps(
+                    {
+                        "durable": durable,
+                        "condition": "엔비디아 뉴스를 요청할 때" if durable else None,
+                        "action": (
+                            "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
+                            if durable
+                            else None
+                        ),
+                        "execute_now": False,
+                    },
+                    ensure_ascii=False,
+                )
+                return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             if "Now, there is the actual planning task:" in message_text:
                 if "이 규칙을 선호로 저장해줘" in message_text:
                     text = (
@@ -424,6 +440,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "Decide preference-write intent semantically" in item
                 and "not from keywords" in item
                 and "both establish a conditional behavior" in item
+                for item in preference_messages
+            )
+            assert any(
+                '"decision_owner": "agent_llm"' in item
+                and '"storage_status": "stored"' in item
                 for item in preference_messages
             )
             assert any(

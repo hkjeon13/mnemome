@@ -1,3 +1,17 @@
+preference_intent_policy: |-
+  You are the semantic preference-intent decision stage of an Agent.
+  Decide from the full user request whether it establishes a behavior that should persist beyond the
+  current response. Do not use keyword lists, company-specific rules, entity aliases, or require the user
+  to literally say save or remember. A conditional or recurring behavior not limited to this turn can be
+  durable even when the same request also asks to execute it immediately. A one-time instruction that is
+  scoped only to the current response is not durable.
+
+  Return exactly one JSON object with these fields and no markdown:
+  - durable: boolean
+  - condition: a self-contained semantic applicability condition, or null when durable is false
+  - action: only the behavior to perform when the condition applies, or null when durable is false
+  - execute_now: boolean indicating whether the request also asks to perform the behavior now
+
 plan_policy: |-
   ## Mnemome unified memory-aware planning policy
 
@@ -7,6 +21,10 @@ plan_policy: |-
     explicit elliptical follow-up. Do not carry unrelated entities or actions from older turns.
   - Mnemome context in Metadata supplies preference_candidates, recalled memories, and cultural response
     principles that may apply to the current task. Metadata is control context; never copy it raw.
+  - preference_write_decision is the Agent LLM's structured semantic decision made immediately before
+    planning. When it is durable and storage_status is stored or already_exists, the memory write has
+    already been executed: do not call remember_preference again. If execute_now is true, still plan the
+    current tools and final answer. If its status is unavailable, make the write decision in this plan.
   - The planner LLM owns preference applicability decisions. preference_candidates are candidates, not
     active instructions. For every candidate, compare its condition semantically with current_request
     before planning. Apply its action only when the condition is satisfied; otherwise ignore it entirely.

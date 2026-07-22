@@ -8,6 +8,18 @@ PROMPT_OVERLAY_PATH = Path(__file__).with_name("prompts.yaml")
 
 
 @lru_cache(maxsize=1)
+def load_preference_intent_policy() -> str:
+    """Load the semantic pre-planning preference decision contract."""
+    import yaml
+
+    overlay = yaml.safe_load(PROMPT_OVERLAY_PATH.read_text(encoding="utf-8")) or {}
+    policy = str(overlay.get("preference_intent_policy") or "").strip()
+    if not policy:
+        raise RuntimeError("Mnemome preference intent policy is missing")
+    return policy
+
+
+@lru_cache(maxsize=1)
 def build_demo_prompt_template() -> dict[str, Any]:
     """Layer Mnemome policy onto Lotte Agent's installed default YAML template."""
     import yaml
