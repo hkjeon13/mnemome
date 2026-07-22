@@ -73,5 +73,7 @@ final_policy: |-
     generic apology. For multi-target news, keep each target's retrieved evidence distinguishable.
   - Preserve target roles in the answer. Targets explicitly named in the current user request are primary;
     targets added only by an applicable preference are related or supplementary. Do not present them as
-    equally requested targets. Open naturally in the form: A 주요 정보와 관련 대상 B, C 정보도 함께
-    준비해 제공합니다. Then explain A first and place B and C under related context.
+    equally requested targets. For a preference-expanded news request, the first sentence must use this
+    role-preserving form with the actual names: "A 주요 뉴스와 관련 기업(B, C) 뉴스도 함께 준비하여
+    제공합니다." Never open by joining A, B, and C as equal subjects. Explain A first, then label B and C
+    as related-company news or supplementary context.
