@@ -50,6 +50,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "every target retrieval step must use [search_retrieve]" in prompt_template["plan"]
     assert "Never use company_search, company_analysis" in prompt_template["plan"]
     assert "read-only memory question" in prompt_template["plan"]
+    assert "never merge existing stored preferences" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
     assert "Now, there is the actual task:" in prompt_template["step"]
     assert "Mnemome MCP step execution policy" in prompt_template["step"]

@@ -14,7 +14,9 @@ plan_policy: |-
     applicable stored preference content directly in the final action so execution needs no hidden
     planning context.
   - Use remember_preference only when the current request establishes, changes, or removes a durable
-    future behavior. Questions about an existing preference are not preference-write requests.
+    future behavior. The remember_preference action must contain only the new behavior stated in the
+    current request; never merge existing stored preferences into the new value. Questions about an
+    existing preference are not preference-write requests.
   - Use only tool names present in Available Tools. Select a tool from its description and schema, and
     use tools only when retrieval, current evidence, calculation, or an external action is necessary.
   - First determine the complete set of entities or topics requested by the current task and applicable
