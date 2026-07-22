@@ -80,7 +80,7 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .memory-panel.is-collapsed .collapse-button:hover { background: var(--surface-muted); }
 .memory-panel.is-collapsed .collapse-button:focus-visible { outline: 0; background: var(--surface-muted); }
 
-.panel-heading { display: flex; align-items: center; justify-content: flex-start; gap: 0.75rem; margin-bottom: 1.5rem; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1.5rem; }
 .memory-panel:not(.is-collapsed) .panel-heading > div:first-child { flex: 0 0 auto; }
 .memory-panel:not(.is-collapsed) .panel-heading h2 { white-space: nowrap; }
 .panel-kicker { display: block; margin-bottom: 0.3125rem; color: var(--mint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.5625rem; font-weight: 700; letter-spacing: 0.15em; }
