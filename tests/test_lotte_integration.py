@@ -127,6 +127,8 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert (
         "planner must make the remember_preference Input self-contained" in prompt_template["step"]
     )
+    assert "a plan that omits the applicable action has failed" in prompt_template["plan"]
+    assert "every semantically applicable candidate" in prompt_template["plan"]
     assert "equally requested targets" in prompt_template["step"]
     assert prompt_template["step"].rindex("Mnemome final response policy") > prompt_template[
         "step"
@@ -235,7 +237,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             message_text = str(messages)
             seen_messages.append(message_text)
             if "Now, there is the actual planning task:" in message_text:
-                if "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘" in message_text:
+                if "앞으로 뉴스 나타낼때는 표로 나타내줘" in message_text:
+                    text = (
+                        '("[remember_preference] 조건 뉴스를 표시할 때 동작 표 형식으로 '
+                        '표시하도록 저장하기", '
+                        '"[final_answer] 저장 성공을 짧게 확인하고 다음부터 적용한다고 안내하기")'
+                    )
+                elif "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘" in message_text:
                     text = (
                         '("[remember_preference] 조건 뉴스 기사를 표시할 때 동작 각 기사를 '
                         '항목 형식으로 표시하도록 저장하기", '
@@ -264,7 +272,12 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     text = '("[final_answer] 저장된 장기 기억으로 한국어 답변하기",)'
                 return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             if "Tool: remember_preference" in message_text:
-                if "조건 뉴스 기사를 표시할 때" in message_text:
+                if "조건 뉴스를 표시할 때" in message_text:
+                    params = {
+                        "condition": "뉴스를 표시할 때",
+                        "action": "표 형식으로 표시한다.",
+                    }
+                elif "조건 뉴스 기사를 표시할 때" in message_text:
                     params = {
                         "condition": "뉴스 기사를 표시할 때",
                         "action": "각 기사를 항목 형식으로 표시한다.",
@@ -299,6 +312,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도 함께 "
                     "준비해 제공합니다."
                 )
+            elif "다음부터 적용한다고 안내하기" in message_text:
+                text = "네, 알겠습니다. 다음부터 뉴스는 표 형식으로 보여드리겠습니다."
             else:
                 text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
             return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
@@ -390,7 +405,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260722-chat-sessions-1" in page.text
+            assert "20260723-gfm-tables-1" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -411,7 +426,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "startNewConversation({ focusInput: false })" in script.text
             assert "setMemoryPanelCollapsed(true)" in script.text
             assert "else elements.chatInput.blur()" in script.text
-            assert "20260722-chat-sessions-1" in page.text
+            assert "20260723-gfm-tables-1" in page.text
             assert "conversation_id: state.conversationId" in script.text
             assert "memory.conversation?.turns" in script.text
             assert 'appendMessage("assistant", "")' in script.text
@@ -420,12 +435,16 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "pendingStreamingMarkdownStart" in script.text
             assert "renderAnswerMarkdown" in script.text
             assert "renderStreamingAnswerMarkdown" in script.text
+            assert "markdownTableAt" in script.text
+            assert 'document.createElement("table")' in script.text
+            assert 'document.createElement("thead")' in script.text
             assert 'document.createElement("strong")' in script.text
             assert "requestAnimationFrame" in script.text
             assert 'setAttribute("aria-busy", "true")' in script.text
             stylesheet = await client.get("/static/app.css")
             assert stylesheet.status_code == 200
             assert "100dvh" in stylesheet.text
+            assert ".markdown-table-wrap table" in stylesheet.text
             assert ".memory-panel:not(.is-collapsed) .panel-heading" in stylesheet.text
 
             documents = await client.get("/documents")
@@ -715,15 +734,21 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
 
             implicit_preference = await isolated_client.post(
                 "/demo/api/chat",
-                json={"query": "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘."},
+                json={"query": "앞으로 뉴스 나타낼때는 표로 나타내줘."},
             )
             assert implicit_preference.status_code == 200, implicit_preference.text
             assert implicit_preference.json()["preference_captured"] is True
+            assert implicit_preference.json()["answer"] == (
+                "네, 알겠습니다. 다음부터 뉴스는 표 형식으로 보여드리겠습니다."
+            )
+            assert [
+                step["tool"] for step in implicit_preference.json()["execution_trace"]["steps"]
+            ] == ["remember_preference", "final_answer"]
             assert len(search_calls) == 3
             implicit_memories = await isolated_client.get("/demo/api/memories")
             assert any(
                 item["kind"] == "preference"
-                and item["metadata"].get("preference_condition") == "뉴스 기사를 표시할 때"
-                and item["metadata"].get("preference_action") == "각 기사를 항목 형식으로 표시한다."
+                and item["metadata"].get("preference_condition") == "뉴스를 표시할 때"
+                and item["metadata"].get("preference_action") == "표 형식으로 표시한다."
                 for item in implicit_memories.json()["items"]
             )

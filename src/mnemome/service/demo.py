@@ -451,12 +451,28 @@ async def _run_lotte_agent(
             "memory": {
                 "preference_policy": {
                     "decision_owner": "planner_llm",
+                    "decision_priority": "mandatory_first_gate_before_using_history",
                     "instruction": (
                         "Evaluate every candidate condition semantically against the current User "
                         "Request. "
                         "Use its action only when the condition applies. Presence in candidates "
                         "does not mean it applies. For legacy_unstructured candidates, infer "
                         "condition and action from raw_rule before deciding."
+                    ),
+                    "write_intent": (
+                        "A current request that establishes a response behavior for a recurring "
+                        "class of future requests is a durable preference write."
+                    ),
+                    "save_only_plan": (
+                        "When that request does not explicitly ask for current execution, use only "
+                        "remember_preference followed by a brief final acknowledgement. Never copy "
+                        "the preceding turn's entities, tools, or output from History."
+                    ),
+                    "application_contract": (
+                        "For each semantically applicable candidate, copy its behavior into the "
+                        "relevant self-contained plan action as a mandatory constraint. Execution "
+                        "steps cannot see candidates, so merely recalling or mentioning one is not "
+                        "application. Ignore non-applicable candidates completely."
                     ),
                 },
                 "preference_candidates": [_preference_candidate(entry) for entry in preferences],

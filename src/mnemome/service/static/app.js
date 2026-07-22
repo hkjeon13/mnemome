@@ -454,13 +454,14 @@ function sourceLabel(urlValue) {
   }
 }
 
-function renderAnswerMarkdown(element, text) {
-  element.replaceChildren();
-  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)|\*\*([^\n]+?)\*\*/g;
+function appendInlineMarkdown(element, text) {
+  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)|\*\*([^\n]+?)\*\*|<br\s*\/?>/gi;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     element.append(document.createTextNode(text.slice(cursor, match.index)));
-    if (match[4] !== undefined) {
+    if (match[0].toLowerCase().startsWith("<br")) {
+      element.append(document.createElement("br"));
+    } else if (match[4] !== undefined) {
       const strong = document.createElement("strong");
       strong.textContent = match[4];
       element.append(strong);
@@ -476,6 +477,110 @@ function renderAnswerMarkdown(element, text) {
     cursor = match.index + match[0].length;
   }
   element.append(document.createTextNode(text.slice(cursor)));
+}
+
+function markdownTableCells(line) {
+  let source = line.trim();
+  if (!source.includes("|")) return null;
+  if (source.startsWith("|")) source = source.slice(1);
+  if (source.endsWith("|") && !source.endsWith("\\|")) source = source.slice(0, -1);
+  const cells = [];
+  let cell = "";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && source[index + 1] === "|") {
+      cell += "|";
+      index += 1;
+    } else if (character === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell.trim());
+  return cells.length >= 2 ? cells : null;
+}
+
+function markdownTableAlignment(cell) {
+  const value = cell.trim();
+  if (!/^:?-{3,}:?$/.test(value)) return null;
+  if (value.startsWith(":") && value.endsWith(":")) return "center";
+  if (value.endsWith(":")) return "right";
+  return "left";
+}
+
+function markdownTableAt(lines, start) {
+  const headers = markdownTableCells(lines[start] || "");
+  const delimiters = markdownTableCells(lines[start + 1] || "");
+  if (!headers || !delimiters || headers.length !== delimiters.length) return null;
+  const alignments = delimiters.map(markdownTableAlignment);
+  if (alignments.some((alignment) => alignment === null)) return null;
+  const rows = [];
+  let next = start + 2;
+  while (next < lines.length) {
+    const row = markdownTableCells(lines[next]);
+    if (!row) break;
+    rows.push(headers.map((_, index) => row[index] || ""));
+    next += 1;
+  }
+  return { headers, alignments, rows, next };
+}
+
+function appendMarkdownTable(element, parsed) {
+  const wrapper = document.createElement("span");
+  wrapper.className = "markdown-table-wrap";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  parsed.headers.forEach((content, index) => {
+    const cell = document.createElement("th");
+    cell.style.textAlign = parsed.alignments[index];
+    appendInlineMarkdown(cell, content);
+    headerRow.append(cell);
+  });
+  head.append(headerRow);
+  const body = document.createElement("tbody");
+  for (const row of parsed.rows) {
+    const tableRow = document.createElement("tr");
+    row.forEach((content, index) => {
+      const cell = document.createElement("td");
+      cell.style.textAlign = parsed.alignments[index];
+      appendInlineMarkdown(cell, content);
+      tableRow.append(cell);
+    });
+    body.append(tableRow);
+  }
+  table.append(head, body);
+  wrapper.append(table);
+  element.append(wrapper);
+}
+
+function renderAnswerMarkdown(element, text) {
+  element.replaceChildren();
+  element.className = "markdown-rendered";
+  const lines = text.split("\n");
+  let textBuffer = [];
+  const flushText = () => {
+    if (!textBuffer.length) return;
+    const prose = document.createElement("span");
+    prose.className = "markdown-text";
+    appendInlineMarkdown(prose, textBuffer.join("\n"));
+    element.append(prose);
+    textBuffer = [];
+  };
+  for (let index = 0; index < lines.length;) {
+    const table = markdownTableAt(lines, index);
+    if (!table) {
+      textBuffer.push(lines[index]);
+      index += 1;
+      continue;
+    }
+    flushText();
+    appendMarkdownTable(element, table);
+    index = table.next;
+  }
+  flushText();
 }
 
 function pendingStreamingMarkdownStart(text) {
