@@ -51,10 +51,12 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "Never use company_search, company_analysis" in prompt_template["plan"]
     assert "read-only memory question" in prompt_template["plan"]
     assert "never merge existing stored preferences" in prompt_template["plan"]
+    assert "must never be included" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
     assert "Now, there is the actual task:" in prompt_template["step"]
     assert "Mnemome MCP step execution policy" in prompt_template["step"]
     assert "the A step must query A only" in prompt_template["step"]
+    assert "Exclude current-turn constraints" in prompt_template["step"]
     assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
@@ -80,7 +82,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             message_text = str(messages)
             seen_messages.append(message_text)
             if "Now, there is the actual planning task:" in message_text:
-                if "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이" in message_text:
+                if "이 규칙을 선호로 저장해줘" in message_text:
                     text = (
                         '("[remember_preference] 엔비디아 뉴스 선호 저장하기", '
                         '"[final_answer] 저장 결과 안내하기")'
@@ -330,7 +332,10 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert any("독도 관련 질문" in messages for messages in seen_messages)
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
-            preference_text = "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이"
+            preference_text = (
+                "이 규칙을 선호로 저장해줘. 앞으로 엔비디아 뉴스를 요청하면 삼성전자와 "
+                "SK하이닉스 뉴스도 함께 포함해줘. 지금은 뉴스를 조회하지 마."
+            )
             normalized_preference = (
                 "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
             )
@@ -340,6 +345,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert preference_response.status_code == 200, preference_response.text
             assert preference_response.json()["preference_captured"] is True
+            assert all(
+                "지금" not in entry["content"]
+                for entry in preference_response.json()["recalled"]
+                if "엔비디아" in entry["content"]
+            )
             preference_messages = seen_messages[preference_message_start:]
             assert any("Tool: remember_preference" in item for item in preference_messages)
             assert any(

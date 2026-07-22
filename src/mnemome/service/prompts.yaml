@@ -17,6 +17,9 @@ plan_policy: |-
     future behavior. The remember_preference action must contain only the new behavior stated in the
     current request; never merge existing stored preferences into the new value. Questions about an
     existing preference are not preference-write requests.
+  - Separate durable future behavior from current-turn execution constraints. Words such as now, this
+    time, currently, or 지금은 조회하지 마 control only the current plan and must never be included in
+    the remember_preference action or stored value.
   - Use only tool names present in Available Tools. Select a tool from its description and schema, and
     use tools only when retrieval, current evidence, calculation, or an external action is necessary.
   - First determine the complete set of entities or topics requested by the current task and applicable
@@ -49,7 +52,8 @@ step_policy: |-
     If parallel steps target A, B, and C, the A step must query A only, never A B C. Do not reconstruct
     the complete target set from History or from the original request.
   - For remember_preference, pass one concise self-contained preference containing both its trigger and
-    future behavior. Do not call it for a read-only question about already stored preferences.
+    future behavior. Persist only the durable future rule. Exclude current-turn constraints such as do
+    not search now or this time. Do not call it for a read-only question about stored preferences.
   - For final_answer steps, output user-facing text only and use relevant successful results from History.
 
 final_policy: |-
