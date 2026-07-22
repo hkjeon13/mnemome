@@ -52,8 +52,10 @@ step_policy: |-
     If parallel steps target A, B, and C, the A step must query A only, never A B C. Do not reconstruct
     the complete target set from History or from the original request.
   - For remember_preference, pass one concise self-contained preference containing both its trigger and
-    future behavior. Persist only the durable future rule. Exclude current-turn constraints such as do
-    not search now or this time. Do not call it for a read-only question about stored preferences.
+    future behavior. For this tool only, Metadata.current_user_request is the authoritative source; do
+    not trust a conflicting or incomplete Input title. Persist only the behavior explicitly stated for
+    future repetition. Exclude current-turn constraints such as do not search now or this time. Do not
+    call it for a read-only question about stored preferences.
   - For final_answer steps, output user-facing text only and use relevant successful results from History.
 
 final_policy: |-

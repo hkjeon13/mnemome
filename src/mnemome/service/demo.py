@@ -351,6 +351,7 @@ async def _run_lotte_agent(
     agent_metadata = {
         "language": "ko",
         "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
+        "current_user_request": query,
         "mnemome": {
             "cultural_principles": cultural_context,
         },
@@ -411,7 +412,9 @@ async def _run_lotte_agent(
             "preference": {
                 "type": "string",
                 "description": (
-                    "앞으로 반복 적용할 조건과 동작을 모두 포함한 자립적인 한국어 규칙"
+                    "Metadata.current_user_request 원문에서 사용자가 앞으로 반복 적용하라고 "
+                    "명시한 조건과 동작만 추출한 자립적인 한국어 규칙. 지금, 현재, 이번 "
+                    "요청에만 적용되는 실행 지시는 제외합니다."
                 ),
             }
         },
