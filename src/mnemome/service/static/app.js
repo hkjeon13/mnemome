@@ -70,6 +70,7 @@ const elements = {
   importConfidence: document.querySelector("#import-confidence"),
   importSessionKey: document.querySelector("#import-session-key"),
   importOrderKey: document.querySelector("#import-order-key"),
+  importTotalRows: document.querySelector("#import-total-rows"),
   importSourceSummary: document.querySelector("#import-source-summary"),
   importOriginal: document.querySelector("#import-original code"),
   importCode: document.querySelector("#import-code"),
@@ -769,18 +770,21 @@ function renderImportPayload(payload) {
   const profile = payload.profile || {};
   const stats = payload.stats || {};
   const source = payload.source || {};
+  const totalRows = Number(source.total_rows || 0);
+  const previewRows = Number(stats.input_rows || 0);
 
   elements.importProfile.hidden = false;
   elements.importLayout.textContent = importLayoutLabels[profile.layout] || profile.layout || "—";
   elements.importConfidence.textContent = `${Math.round((profile.confidence || 0) * 100)}%`;
   elements.importSessionKey.textContent = profile.session_field || "row index";
   elements.importOrderKey.textContent = profile.order_field || "source order";
-  elements.importSourceSummary.textContent = `${source.label || source.type || "source"} · ${Number(source.total_rows || 0).toLocaleString("ko-KR")} rows`;
+  elements.importTotalRows.textContent = `${totalRows.toLocaleString("ko-KR")} rows`;
+  elements.importSourceSummary.textContent = source.label || source.type || "source";
   elements.importOriginal.textContent = prettyJson(payload.original || []);
   elements.importCode.value = payload.code || "";
   elements.importCode.disabled = false;
   elements.importResult.textContent = prettyJson(payload.result || []);
-  elements.originalMeta.textContent = `${(payload.original || []).length} head rows`;
+  elements.originalMeta.textContent = `${previewRows.toLocaleString("ko-KR")} / ${totalRows.toLocaleString("ko-KR")} rows`;
   elements.codeMeta.textContent = `${payload.generator || "generated"} · ${payload.code_digest || ""}`;
   elements.resultMeta.textContent = `${stats.sessions || 0} sessions · ${stats.turns || 0} turns`;
   renderImportWarnings(payload.warnings || []);
@@ -790,7 +794,7 @@ function renderImportPayload(payload) {
     canProcess ? "ready" : "error",
     canProcess ? "Preview 준비 완료" : "Processing 전 확인이 필요합니다",
     canProcess
-      ? `${stats.input_rows || 0} rows에서 ${stats.sessions || 0}개 session을 구성했습니다.`
+      ? `전체 ${totalRows.toLocaleString("ko-KR")} rows 중 ${previewRows.toLocaleString("ko-KR")} rows를 미리봤습니다 · ${stats.sessions || 0} sessions`
       : (payload.warnings || ["전체 처리 조건을 충족하지 못했습니다."]).at(-1),
   );
   setImportBusy(false);

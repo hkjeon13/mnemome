@@ -287,7 +287,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(0.3125
 .import-analyze-button:disabled { opacity: 0.5; cursor: wait; }
 .import-analyze-button svg { width: 0.875rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
-.import-profile { display: grid; grid-row: 3; grid-template-columns: repeat(4, minmax(7rem, auto)) minmax(12rem, 1fr); gap: 0; padding: 0.625rem 1.5rem; border-bottom: 0.0625rem solid var(--line); background: #fff; }
+.import-profile { display: grid; grid-row: 3; grid-template-columns: repeat(5, minmax(6.5rem, auto)) minmax(12rem, 1fr); gap: 0; padding: 0.625rem 1.5rem; border-bottom: 0.0625rem solid var(--line); background: #fff; }
 .import-profile[hidden] { display: none; }
 .import-profile > div { min-width: 0; padding: 0 0.875rem; border-left: 0.0625rem solid #e8e8e8; }
 .import-profile > div:first-child { padding-left: 0; border-left: 0; }
