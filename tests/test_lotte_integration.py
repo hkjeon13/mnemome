@@ -403,6 +403,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             preference_messages = seen_messages[preference_message_start:]
             assert any("Tool: remember_preference" in item for item in preference_messages)
             assert any(
+                "Never represent saving as no_tool" in item
+                and "exact [remember_preference] tool tag" in item
+                for item in preference_messages
+            )
+            assert any(
                 '"condition":{"type":"string"' in item
                 and '"action":{"type":"string"' in item
                 and '"required":["condition","action"]' in item

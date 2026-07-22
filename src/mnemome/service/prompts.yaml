@@ -26,6 +26,10 @@ plan_policy: |-
     future behavior. The remember_preference action must contain only the new behavior stated in the
     current request; never merge existing stored preferences into the new value. Questions about an
     existing preference are not preference-write requests.
+  - For a durable preference-write request, the plan MUST select the available remember_preference
+    tool by using the exact [remember_preference] tool tag. Never represent saving as no_tool, and never
+    claim or imply that saving succeeded from a no_tool or final_answer step. Put the final_answer step
+    after remember_preference so the user-facing confirmation is grounded in the tool result.
   - Separate durable future behavior from current-turn execution constraints. Words such as now, this
     time, currently, or 지금은 조회하지 마 control only the current plan and must never be included in
     the remember_preference action or stored value.
