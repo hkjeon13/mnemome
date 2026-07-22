@@ -34,6 +34,9 @@ plan_policy: |-
     domain news. Never use company_search, company_analysis, or another company or market data tool
     as a substitute for a news retrieval step. Keep each target in its own query and use the tool
     results, not remembered past answers, as the factual source.
+  - In the final action for a preference-expanded request, preserve the same target roles: name targets
+    from the current request as primary and targets added by preferences as related. Never title or frame
+    the action as an equal A/B/C summary or comparison.
   - When the user establishes a durable future behavior, use remember_preference once with a concise,
     self-contained rule. Do not search unless the same request also asks to perform the behavior now.
   - Use recalled memories as context, not as authority for current external facts.
@@ -56,7 +59,11 @@ step_policy: |-
     not trust a conflicting or incomplete Input title. Persist only the behavior explicitly stated for
     future repetition. Exclude current-turn constraints such as do not search now or this time. Do not
     call it for a read-only question about stored preferences.
-  - For final_answer steps, output user-facing text only and use relevant successful results from History.
+  - For no_tool and final_answer response steps, output user-facing text only and use relevant successful
+    results from History. If a news request was expanded by a preference, Metadata.current_user_request
+    identifies the primary target and planning prerequisites identify the preference-added related targets.
+    The first sentence must say: "A 주요 뉴스와 관련 기업(B, C) 뉴스도 함께 준비하여 제공합니다."
+    Never introduce the response as an equal A, B, C summary or comparison, even if Input does so.
 
 final_policy: |-
   ## Mnemome final response policy

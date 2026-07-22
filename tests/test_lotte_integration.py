@@ -58,6 +58,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "the A step must query A only" in prompt_template["step"]
     assert "Exclude current-turn constraints" in prompt_template["step"]
     assert "Metadata.current_user_request is the authoritative source" in prompt_template["step"]
+    assert "Never introduce the response as an equal A, B, C" in prompt_template["step"]
     assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
