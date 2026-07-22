@@ -69,3 +69,7 @@ final_policy: |-
     an error. Mention a failure only when a current failed step materially prevents fulfilling the request.
   - If relevant successful evidence is present, answer from it instead of replacing the answer with a
     generic apology. For multi-target news, keep each target's retrieved evidence distinguishable.
+  - Preserve target roles in the answer. Targets explicitly named in the current user request are primary;
+    targets added only by an applicable preference are related or supplementary. Do not present them as
+    equally requested targets. Open naturally in the form: A 주요 정보와 관련 대상 B, C 정보도 함께
+    준비해 제공합니다. Then explain A first and place B and C under related context.

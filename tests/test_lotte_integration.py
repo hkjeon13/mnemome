@@ -135,6 +135,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     "선호하는 답변 방식은 핵심부터 한국어로 간결하게 설명하고, "
                     "엔비디아 뉴스 요청 시 삼성전자와 SK하이닉스 뉴스도 함께 보는 것입니다."
                 )
+            elif "기업별 최신 뉴스 요약하기" in message_text:
+                text = (
+                    "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도 함께 "
+                    "준비해 제공합니다."
+                )
             else:
                 text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
             return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
@@ -393,6 +398,9 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             }
             assert all(call["domain"] == "news" for call in search_calls)
             assert all(call["limit"] == 5 for call in search_calls)
+            assert follow_up.json()["answer"].startswith(
+                "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스)"
+            )
 
             memory_message_start = len(seen_messages)
             memory_query = await client.post(
