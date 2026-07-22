@@ -37,6 +37,20 @@ DEFAULT_MCP_TOOLS = (
 logger = logging.getLogger("mnemome.service.demo")
 
 
+def _preference_candidate(entry: Any) -> dict[str, Any]:
+    metadata = dict(entry.metadata or {})
+    condition = metadata.get("preference_condition")
+    action = metadata.get("preference_action")
+    structured = bool(condition and action)
+    return {
+        "id": entry.id,
+        "condition": str(condition) if condition else None,
+        "action": str(action) if action else None,
+        "raw_rule": entry.content,
+        "structure_status": "structured" if structured else "legacy_unstructured",
+    }
+
+
 class DemoMemoryBody(BaseModel):
     content: str = Field(min_length=1, max_length=2_000)
     kind: str = Field(default="fact", pattern="^(fact|preference|episode)$")
@@ -328,7 +342,6 @@ async def _run_lotte_agent(
         api_key=api_key,
         model=model_name,
         base_url=base_url,
-        generation_parameters={"max_output_tokens": 700},
     )
 
     memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
@@ -357,26 +370,56 @@ async def _run_lotte_agent(
         },
         "plan_prerequisites": {
             "mnemome": {
-                "preferences": [entry.content for entry in preferences],
+                "preference_application": {
+                    "decision_owner": "planner_llm",
+                    "current_request": query,
+                    "instruction": (
+                        "Evaluate every candidate condition semantically against current_request. "
+                        "Use its action only when the condition applies. Presence in candidates "
+                        "does not mean it applies. For legacy_unstructured candidates, infer "
+                        "condition and action from raw_rule before deciding."
+                    ),
+                },
+                "preference_candidates": [
+                    _preference_candidate(entry) for entry in preferences
+                ],
                 "recalled_memories": [
                     {"kind": entry.kind.value, "content": entry.content}
                     for entry in recalled
+                    if entry.kind != MemoryEntryKind.PREFERENCE
                 ],
             }
         },
     }
 
-    async def remember_preference(preference: str) -> dict[str, str]:
+    async def remember_preference(condition: str, action: str) -> dict[str, str]:
         nonlocal captured_preference, preferences, recalled
-        normalized = " ".join(preference.split())
-        if not normalized:
-            raise ValueError("preference must not be empty")
+        normalized_condition = " ".join(condition.split())
+        normalized_action = " ".join(action.split())
+        if not normalized_condition or not normalized_action:
+            raise ValueError("condition and action must not be empty")
+        normalized = f"{normalized_condition}: {normalized_action}"
         duplicate = next(
-            (entry for entry in preferences if entry.content.casefold() == normalized.casefold()),
+            (
+                entry
+                for entry in preferences
+                if (
+                    str((entry.metadata or {}).get("preference_condition", "")).casefold()
+                    == normalized_condition.casefold()
+                    and str((entry.metadata or {}).get("preference_action", "")).casefold()
+                    == normalized_action.casefold()
+                )
+                or entry.content.casefold() == normalized.casefold()
+            ),
             None,
         )
         if duplicate is not None:
-            return {"status": "already_exists", "preference": duplicate.content}
+            return {
+                "status": "already_exists",
+                "preference": duplicate.content,
+                "condition": normalized_condition,
+                "action": normalized_action,
+            }
         await memory.store(
             MemoryEntry(
                 id=f"{run_id}:preference",
@@ -388,6 +431,9 @@ async def _run_lotte_agent(
                     "source_id": run_id,
                     "original_instruction": query,
                     "prompt_strategy": "unified",
+                    "preference_condition": normalized_condition,
+                    "preference_action": normalized_action,
+                    "applicability_owner": "planner_llm",
                 },
                 tags=["conversation-derived", "instruction", "agent-stored"],
             )
@@ -398,27 +444,37 @@ async def _run_lotte_agent(
         recalled_ids = {item.id for item in recalled}
         recalled.extend(entry for entry in relevant if entry.id not in recalled_ids)
         recalled = recalled[:8]
-        return {"status": "stored", "preference": normalized}
+        return {
+            "status": "stored",
+            "preference": normalized,
+            "condition": normalized_condition,
+            "action": normalized_action,
+        }
 
     memory_tool = ToolSpec(
         name="remember_preference",
         fn=remember_preference,
         description=(
-            "사용자가 앞으로 반복 적용할 행동이나 응답 선호를 정할 때 그 규칙을 장기 "
-            "기억에 저장합니다. preference에는 트리거와 동작을 포함한 자립적인 한국어 "
-            "규칙을 전달하세요. 단순 질문이나 일회성 요청에는 사용하지 마세요."
+            "사용자가 앞으로 반복 적용할 행동이나 응답 선호를 정할 때 적용 조건과 동작을 "
+            "분리해 장기 기억에 저장합니다. 단순 질문이나 일회성 요청에는 사용하지 마세요."
         ),
         properties={
-            "preference": {
+            "condition": {
                 "type": "string",
                 "description": (
-                    "Metadata.current_user_request 원문에서 사용자가 앞으로 반복 적용하라고 "
-                    "명시한 조건과 동작만 추출한 자립적인 한국어 규칙. 지금, 현재, 이번 "
-                    "요청에만 적용되는 실행 지시는 제외합니다."
+                    "이 선호를 적용해야 하는 의미적 조건. 대상, 요청 유형, 상황을 포함해 "
+                    "자립적으로 작성하고, 무조건 적용하라는 선호에만 '항상'을 사용합니다."
+                ),
+            },
+            "action": {
+                "type": "string",
+                "description": (
+                    "조건이 충족됐을 때 수행할 동작만 자립적으로 작성합니다. 지금, 현재, "
+                    "이번 요청에만 적용되는 실행 지시는 제외합니다."
                 ),
             }
         },
-        required=["preference"],
+        required=["condition", "action"],
     )
 
     started = time.perf_counter()

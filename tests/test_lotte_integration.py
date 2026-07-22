@@ -13,6 +13,7 @@ from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
 from mnemome.integrations.lotte_agent import MnemomeLongTermMemory
 from mnemome.service.app import create_app
+from mnemome.service.demo import _preference_candidate
 from mnemome.service.prompting import PROMPT_OVERLAY_PATH, build_demo_prompt_template
 from mnemome.service.settings import ApiPrincipal, Settings
 
@@ -36,6 +37,7 @@ async def test_lotte_memory_protocol_round_trip() -> None:
     assert [entry.id for entry in recalled] == ["pref-1"]
     assert recalled[0].kind == MemoryEntryKind.PREFERENCE
     assert recalled[0].tags == ["language", "style"]
+
     assert await memory.delete("pref-1") is True
     assert await memory.retrieve("pref-1") is None
 
@@ -47,10 +49,14 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "STRICT PLAN GENERATION RULES" in prompt_template["plan"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["plan"]
     assert "For targets A, B, and C" in prompt_template["plan"]
-    assert 'Never use titles such as "세 기업 뉴스"' in prompt_template["plan"]
+    assert "equal multi-target summary" in prompt_template["plan"]
     assert "every target retrieval step must use [search_retrieve]" in prompt_template["plan"]
     assert "Never use company_search, company_analysis" in prompt_template["plan"]
     assert "read-only memory question" in prompt_template["plan"]
+    assert "planner LLM owns preference applicability decisions" in prompt_template["plan"]
+    assert "active instructions" in prompt_template["plan"]
+    assert "legacy_unstructured" in prompt_template["plan"]
+    assert "A condition about one company" in prompt_template["plan"]
     assert "never merge existing stored preferences" in prompt_template["plan"]
     assert "must never be included" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
@@ -59,28 +65,57 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "the A step must query A only" in prompt_template["step"]
     assert "Exclude current-turn constraints" in prompt_template["step"]
     assert "Metadata.current_user_request is the authoritative source" in prompt_template["step"]
-    assert "Never introduce the response as an equal A, B, C" in prompt_template["step"]
+    assert "equal multi-target summary" in prompt_template["step"]
     assert prompt_template["step"].rindex("Mnemome final response policy") > prompt_template[
         "step"
     ].index("Input: {{input}}")
     assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
-    assert "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스)" in prompt_template[
-        "final_instruction"
-    ]
+    assert "preference-added targets as related" in prompt_template["final_instruction"]
     assert "Do not say they were newly stored" in prompt_template["final_instruction"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["replan"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["plan_repair"]
     assert "NVIDIA" not in overlay_text
     assert "Samsung" not in overlay_text
     assert "SK hynix" not in overlay_text
+    assert "엔비디아" not in overlay_text
+    assert "삼성전자" not in overlay_text
+    assert "SK하이닉스" not in overlay_text
+
+
+def test_preference_candidates_preserve_structure_for_planner_decisions() -> None:
+    structured = MemoryEntry(
+        id="nvidia-news",
+        kind=MemoryEntryKind.PREFERENCE,
+        content="엔비디아 뉴스를 요청할 때: 삼성전자와 SK하이닉스 뉴스도 함께 보여준다",
+        metadata={
+            "preference_condition": "엔비디아 뉴스를 요청할 때",
+            "preference_action": "삼성전자와 SK하이닉스 뉴스도 함께 보여준다",
+        },
+    )
+    legacy = MemoryEntry(
+        id="legacy",
+        kind=MemoryEntryKind.PREFERENCE,
+        content="답변은 한국어로 간결하게",
+    )
+
+    assert _preference_candidate(structured) == {
+        "id": "nvidia-news",
+        "condition": "엔비디아 뉴스를 요청할 때",
+        "action": "삼성전자와 SK하이닉스 뉴스도 함께 보여준다",
+        "raw_rule": structured.content,
+        "structure_status": "structured",
+    }
+    assert _preference_candidate(legacy)["structure_status"] == "legacy_unstructured"
+    assert _preference_candidate(legacy)["condition"] is None
 
 
 @pytest.mark.asyncio
 async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> None:
     seen_messages: list[str] = []
     search_calls: list[dict] = []
+    model_init_calls: list[dict] = []
 
     class FakeLiveOpenAIModel(AsyncModelBase):
         def __init__(self) -> None:
@@ -117,10 +152,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 text = json.dumps(
                     [
                         {
-                            "preference": (
-                                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 "
-                                "함께 포함한다."
-                            )
+                            "condition": "엔비디아 뉴스를 요청할 때",
+                            "action": "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다.",
                         }
                     ],
                     ensure_ascii=False,
@@ -186,7 +219,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
     monkeypatch.setattr(
         lotte_agent.models,
         "AsyncOpenAIClient",
-        lambda **kwargs: FakeLiveOpenAIModel(),
+        lambda **kwargs: (model_init_calls.append(kwargs), FakeLiveOpenAIModel())[1],
     )
     settings = Settings(
         environment="test",
@@ -279,6 +312,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "/demo/api/chat/stream", json={"query": "한국어 스트림 응답을 보여줘"}
             )
             assert streamed.status_code == 200
+            assert model_init_calls
+            assert all("generation_parameters" not in call for call in model_init_calls)
             assert streamed.headers["content-type"].startswith("text/event-stream")
             assert "event: ready" in streamed.text
             assert "event: progress" in streamed.text
@@ -351,7 +386,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "SK하이닉스 뉴스도 함께 포함해줘. 지금은 뉴스를 조회하지 마."
             )
             normalized_preference = (
-                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
+                "엔비디아 뉴스를 요청할 때: "
+                "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
             )
             preference_message_start = len(seen_messages)
             preference_response = await client.post(
@@ -367,8 +403,9 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             preference_messages = seen_messages[preference_message_start:]
             assert any("Tool: remember_preference" in item for item in preference_messages)
             assert any(
-                '"preference":{"type":"string"' in item
-                and '"required":["preference"]' in item
+                '"condition":{"type":"string"' in item
+                and '"action":{"type":"string"' in item
+                and '"required":["condition","action"]' in item
                 for item in preference_messages
             )
             assert any(preference_text in item for item in preference_messages)
@@ -394,6 +431,12 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert follow_up.status_code == 200, follow_up.text
             follow_up_messages = seen_messages[follow_up_message_start:]
             assert any(normalized_preference in item for item in follow_up_messages)
+            assert any('"decision_owner": "planner_llm"' in item for item in follow_up_messages)
+            assert any(
+                '"condition": "엔비디아 뉴스를 요청할 때"' in item
+                and '"structure_status": "structured"' in item
+                for item in follow_up_messages
+            )
             search_step_messages = [
                 item for item in follow_up_messages if "Tool: search_retrieve" in item
             ]
@@ -443,6 +486,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert stored_preference["metadata"]["original_instruction"] == preference_text
             assert stored_preference["metadata"]["prompt_strategy"] == "unified"
+            assert stored_preference["metadata"]["preference_condition"] == (
+                "엔비디아 뉴스를 요청할 때"
+            )
+            assert stored_preference["metadata"]["preference_action"] == (
+                "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
+            )
+            assert stored_preference["metadata"]["applicability_owner"] == "planner_llm"
 
             seeded = next(item for item in memories.json()["items"] if item["is_seed"])
             protected = await client.delete(f"/demo/api/memories/{seeded['id']}")
