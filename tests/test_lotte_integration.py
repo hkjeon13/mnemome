@@ -116,6 +116,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
     seen_messages: list[str] = []
     search_calls: list[dict] = []
     model_init_calls: list[dict] = []
+    agent_init_calls: list[dict] = []
 
     class FakeLiveOpenAIModel(AsyncModelBase):
         def __init__(self) -> None:
@@ -194,6 +195,16 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
 
     import lotte_agent.models
     import lotte_agent.tools
+
+    live_agent_class = lotte_agent.AsyncToolCallingAgent
+    monkeypatch.setattr(
+        lotte_agent,
+        "AsyncToolCallingAgent",
+        lambda **kwargs: (
+            agent_init_calls.append(kwargs),
+            live_agent_class(**kwargs),
+        )[1],
+    )
 
     async def fake_tool(**kwargs):
         search_calls.append(kwargs)
@@ -313,6 +324,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert streamed.status_code == 200
             assert model_init_calls
+            assert agent_init_calls
+            assert all(call["num_steps"] == 6 for call in agent_init_calls)
             assert all("generation_parameters" not in call for call in model_init_calls)
             assert streamed.headers["content-type"].startswith("text/event-stream")
             assert "event: ready" in streamed.text
@@ -405,6 +418,12 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert any(
                 "Never represent saving as no_tool" in item
                 and "exact [remember_preference] tool tag" in item
+                for item in preference_messages
+            )
+            assert any(
+                "Decide preference-write intent semantically" in item
+                and "not from keywords" in item
+                and "both establish a conditional behavior" in item
                 for item in preference_messages
             )
             assert any(

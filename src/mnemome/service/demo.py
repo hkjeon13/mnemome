@@ -501,7 +501,7 @@ async def _run_lotte_agent(
             memory_store_outputs=True,
             deterministic_trajectory=True,
             max_replans=0,
-            num_steps=4,
+            num_steps=6,
             debug_verbosity="none",
             workflow_cache_dir="/tmp/mnemome-workflows",
             tracking_workflow_detail="preview",

@@ -30,6 +30,11 @@ plan_policy: |-
     tool by using the exact [remember_preference] tool tag. Never represent saving as no_tool, and never
     claim or imply that saving succeeded from a no_tool or final_answer step. Put the final_answer step
     after remember_preference so the user-facing confirmation is grounded in the tool result.
+  - Decide preference-write intent semantically from the whole current request, not from keywords or a
+    requirement that the user explicitly says "save". A request may both establish a conditional behavior
+    for future matching requests and ask to execute that behavior now. In that case, plan
+    remember_preference once, all tools needed for the current execution, and a final_answer. Do not drop
+    the memory write merely because the requested behavior is also immediately actionable.
   - Separate durable future behavior from current-turn execution constraints. Words such as now, this
     time, currently, or 지금은 조회하지 마 control only the current plan and must never be included in
     the remember_preference action or stored value.
@@ -53,7 +58,8 @@ plan_policy: |-
     primary target first and label preference-added targets as related context. Never copy placeholder
     names or examples into the plan.
   - When the user establishes a durable future behavior, use remember_preference once with a concise,
-    self-contained rule. Do not search unless the same request also asks to perform the behavior now.
+    self-contained rule. Do not search unless the same request also asks to perform the behavior now; if
+    it does, preserve both the memory-write step and the current-execution steps in the plan.
   - Use recalled memories as context, not as authority for current external facts.
   - Follow applicable cultural principles while answering. Never copy raw Metadata into the answer.
 
