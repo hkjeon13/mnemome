@@ -18,6 +18,7 @@ const state = {
   importBusy: false,
   importJobId: null,
   importJobPollTimer: null,
+  importRenderedMemories: 0,
 };
 
 const elements = {
@@ -909,10 +910,13 @@ function renderImportJob(job) {
     const sessionProgress = job.total_sessions
       ? ` · ${job.completed_sessions}/${job.total_sessions} sessions`
       : "";
+    const memoryProgress = job.created_memories
+      ? ` · 메모리 ${job.created_memories}개 반영`
+      : "";
     setImportStatus(
       "busy",
       job.stage || "백그라운드 Processing 중",
-      `${Number(job.progress || 0)}%${sessionProgress} · 팝업을 닫아도 계속 진행됩니다.`,
+      `${Number(job.progress || 0)}%${sessionProgress}${memoryProgress} · 팝업을 닫아도 계속 진행됩니다.`,
     );
     return;
   }
@@ -934,6 +938,11 @@ async function pollImportJob() {
   try {
     const job = await api(`/demo/api/imports/jobs/${encodeURIComponent(state.importJobId)}`);
     renderImportJob(job);
+    const createdMemories = Number(job.created_memories || 0);
+    if (createdMemories > state.importRenderedMemories) {
+      await loadMemories();
+      state.importRenderedMemories = createdMemories;
+    }
     if (job.status === "QUEUED" || job.status === "RUNNING") {
       state.importJobPollTimer = window.setTimeout(pollImportJob, 1000);
       return;
@@ -941,6 +950,7 @@ async function pollImportJob() {
 
     const completedJobId = state.importJobId;
     state.importJobId = null;
+    state.importRenderedMemories = 0;
     sessionStorage.removeItem("mnemomeImportJobId");
     setImportJobIndicator(null);
     setImportBusy(false);
@@ -949,10 +959,12 @@ async function pollImportJob() {
       showSidebarView("memory");
       showToast(`백그라운드 가져오기가 완료되었습니다. 대화 메모리 ${job.result?.created || 0}개를 저장했습니다.`);
     } else {
+      await loadMemories();
       showToast(job.error || `Import job ${completedJobId}가 실패했습니다.`, "error");
     }
   } catch (error) {
     state.importJobId = null;
+    state.importRenderedMemories = 0;
     sessionStorage.removeItem("mnemomeImportJobId");
     setImportJobIndicator(null);
     setImportBusy(false);
@@ -971,6 +983,7 @@ async function processImport() {
       body: JSON.stringify({ code: elements.importCode.value }),
     });
     state.importJobId = job.job_id;
+    state.importRenderedMemories = 0;
     sessionStorage.setItem("mnemomeImportJobId", job.job_id);
     state.importPreviewFresh = false;
     setImportBusy(false);

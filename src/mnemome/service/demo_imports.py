@@ -75,6 +75,7 @@ class _ImportJob:
     stage: str = "대기 중"
     progress: int = 0
     completed_sessions: int = 0
+    created_memories: int = 0
     total_sessions: int = 0
     result: dict[str, Any] | None = None
     error: str | None = None
@@ -87,6 +88,7 @@ class _ImportJob:
             "stage": self.stage,
             "progress": self.progress,
             "completed_sessions": self.completed_sessions,
+            "created_memories": self.created_memories,
             "total_sessions": self.total_sessions,
             "result": self.result,
             "error": self.error,
@@ -908,6 +910,7 @@ class DemoImportStudio:
             )
             existing_keys.add(import_key)
             created += 1
+            job.created_memories = created
             job.completed_sessions = index + 1
             job.progress = 60 + int((index + 1) / max(1, len(sessions)) * 35)
         return {

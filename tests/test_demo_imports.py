@@ -172,6 +172,67 @@ async def test_processing_runs_as_background_job_after_request_returns() -> None
 
 
 @pytest.mark.asyncio
+async def test_processing_persists_each_session_before_job_completion() -> None:
+    class IncrementalApplication:
+        def __init__(self) -> None:
+            self.created: list[dict[str, object]] = []
+            self.calls = 0
+            self.second_started = asyncio.Event()
+            self.release_second = asyncio.Event()
+
+        async def list_facts(self, tenant_id: str, limit: int) -> list[object]:
+            return []
+
+        async def create_fact(self, *args: object, **kwargs: object) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                self.second_started.set()
+                await self.release_second.wait()
+            self.created.append(kwargs)
+
+    studio = DemoImportStudio()
+    prepared = await studio.prepare(
+        "tenant",
+        DemoImportPrepareBody.model_validate(
+            {
+                "source": {"type": "local", "file_name": "incremental.json"},
+                "rows": [
+                    {
+                        "sessionId": session_id,
+                        "conversation": [
+                            {"content": f"{session_id} 질문", "role": "user", "timestamp": ""},
+                            {"content": f"{session_id} 답변", "role": "assistant", "timestamp": ""},
+                        ],
+                    }
+                    for session_id in ("session-1", "session-2")
+                ],
+            }
+        ),
+    )
+    application = IncrementalApplication()
+    accepted = await studio.process(
+        "tenant",
+        prepared["preparation_id"],
+        DemoImportProcessBody(code=prepared["code"]),
+        application,
+    )
+
+    await asyncio.wait_for(application.second_started.wait(), timeout=1)
+    running = studio.job_status("tenant", accepted["job_id"])
+    assert running["status"] == "RUNNING"
+    assert running["created_memories"] == 1
+    assert running["completed_sessions"] == 1
+    assert len(application.created) == 1
+
+    application.release_second.set()
+    await asyncio.wait_for(studio._tasks[accepted["job_id"]], timeout=1)
+    completed = studio.job_status("tenant", accepted["job_id"])
+    assert completed["status"] == "COMPLETED"
+    assert completed["created_memories"] == 2
+    assert len(application.created) == 2
+
+
+@pytest.mark.asyncio
 async def test_import_studio_previews_and_persists_conversation_memories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
