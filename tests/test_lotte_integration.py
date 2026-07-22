@@ -62,7 +62,9 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
-    assert "A 주요 뉴스와 관련 기업(B, C)" in prompt_template["final_instruction"]
+    assert "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스)" in prompt_template[
+        "final_instruction"
+    ]
     assert "Do not say they were newly stored" in prompt_template["final_instruction"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["replan"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["plan_repair"]

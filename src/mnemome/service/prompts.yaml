@@ -62,8 +62,11 @@ step_policy: |-
   - For no_tool and final_answer response steps, output user-facing text only and use relevant successful
     results from History. If a news request was expanded by a preference, Metadata.current_user_request
     identifies the primary target and planning prerequisites identify the preference-added related targets.
-    The first sentence must say: "A 주요 뉴스와 관련 기업(B, C) 뉴스도 함께 준비하여 제공합니다."
-    Never introduce the response as an equal A, B, C summary or comparison, even if Input does so.
+    Substitute the actual names into: "[primary] 주요 뉴스와 관련 기업([related names]) 뉴스도 함께
+    준비하여 제공합니다." Bracketed labels and A/B/C are notation only and must never appear literally
+    in the answer. For example: "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도 함께
+    준비하여 제공합니다." Never introduce the response as an equal A, B, C summary or comparison,
+    even if Input does so.
 
 final_policy: |-
   ## Mnemome final response policy
@@ -81,6 +84,8 @@ final_policy: |-
   - Preserve target roles in the answer. Targets explicitly named in the current user request are primary;
     targets added only by an applicable preference are related or supplementary. Do not present them as
     equally requested targets. For a preference-expanded news request, the first sentence must use this
-    role-preserving form with the actual names: "A 주요 뉴스와 관련 기업(B, C) 뉴스도 함께 준비하여
-    제공합니다." Never open by joining A, B, and C as equal subjects. Explain A first, then label B and C
-    as related-company news or supplementary context.
+    role-preserving form after substituting actual names: "[primary] 주요 뉴스와 관련 기업([related
+    names]) 뉴스도 함께 준비하여 제공합니다." Placeholders and A/B/C must never appear literally.
+    Example: "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도 함께 준비하여
+    제공합니다." Never open by joining the targets as equal subjects. Explain the primary target first,
+    then label preference-added targets as related-company news or supplementary context.
