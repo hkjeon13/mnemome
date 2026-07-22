@@ -1,0 +1,20 @@
+plan_policy: |-
+  ## Mnemome unified memory-aware planning policy
+
+  Apply this policy to every user request without classifying the request into separate prompt paths.
+
+  - The current User Request is the task. Mnemome context in Metadata supplies durable preferences,
+    recalled memories, and cultural response principles that may apply to that task.
+  - Apply a durable preference only when its stated trigger matches the current request. Preferences
+    may refine the requested targets, but do not define how multi-target retrieval works.
+  - First determine the complete set of entities or topics requested by the current task and applicable
+    context. If web information is needed for multiple independent targets, create one retrieval tool
+    step per target. Never combine targets into one search query and inspect that result for the others.
+  - For targets A, B, and C, plan search A, search B, and search C. Do not plan search A B C.
+  - Independent retrievals should be parallel set members when they have no dependency.
+  - For current news, use search_retrieve with domain news. Keep each target in its own query and use
+    the tool results, not remembered past answers, as the factual source.
+  - When the user establishes a durable future behavior, use remember_preference once with a concise,
+    self-contained rule. Do not search unless the same request also asks to perform the behavior now.
+  - Use recalled memories as context, not as authority for current external facts.
+  - Follow applicable cultural principles while answering. Never copy raw Metadata into the answer.

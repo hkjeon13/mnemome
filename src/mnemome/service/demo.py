@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
 from ..retrieval import recall_backend_label
-from .query_routing import LlmQueryRouter, QueryRoute, QueryRoutingResult
+from .prompting import build_demo_prompt_template
 
 DEMO_COOKIE = "mnemome_demo_session"
 DEMO_TENANT_PREFIX = "demo_"
@@ -194,7 +194,11 @@ def _conversation_query(fact: Any) -> str | None:
     if not isinstance(task_text, str) or not task_text.strip():
         return None
     marker = "[사용자 질문]\n"
-    return task_text.rsplit(marker, 1)[-1].strip() if marker in task_text else task_text.strip()
+    query = task_text.rsplit(marker, 1)[-1].strip() if marker in task_text else task_text.strip()
+    lines = [line.strip() for line in query.splitlines() if line.strip()]
+    if lines and all(line == lines[0] for line in lines):
+        return lines[0]
+    return query
 
 
 def _memory_payload(fact: Any) -> dict[str, Any]:
@@ -292,69 +296,6 @@ def _mcp_settings() -> tuple[str, set[str]]:
     return url, allowed or set(DEFAULT_MCP_TOOLS)
 
 
-def _route_instruction(route: QueryRoute) -> tuple[str, bool, str | None]:
-    if route.interaction == "store_preference":
-        return (
-            "이 요청은 지속 선호 저장 자체가 목적입니다. 외부 검색 도구를 사용하지 말고, "
-            "선호가 저장되었음을 한국어로 짧게 확인하세요.\n\n",
-            False,
-            None,
-        )
-    if route.information_route == "fresh_news":
-        search_query = json.dumps(route.search_query, ensure_ascii=False)
-        return (
-            "이 질문은 최신 뉴스 확인이 필요한 요청입니다. 반드시 search_retrieve를 "
-            f"domain='news', limit=15, query={search_query}로 실행한 뒤 그 결과를 답변의 "
-            "사실 근거로 사용하세요. company_search는 기업 식별 도구일 뿐 뉴스 검색을 "
-            "대체할 수 없습니다. 검색 결과 중 최신성과 중요도를 기준으로 중복을 제거한 "
-            "5건 이내만 요약하고, 각 항목에 확인 가능한 날짜와 출처 링크를 포함하세요. "
-            "검색 결과가 오래됐다면 현재 뉴스라고 단정하지 말고 확인된 최신 날짜를 "
-            "명시하세요. 장기 기억은 사용자 맥락과 선호에만 사용하세요.\n\n",
-            True,
-            "news",
-        )
-    if route.information_route == "fresh_web":
-        search_query = json.dumps(route.search_query, ensure_ascii=False)
-        return (
-            "이 질문은 현재 외부 정보 확인이 필요한 요청입니다. 반드시 search_retrieve를 "
-            f"domain='web', limit=10, query={search_query}로 실행한 뒤 확인된 근거와 기준 "
-            "시점을 밝혀 답변하세요. 장기 기억의 과거 답변을 현재 사실로 대체하지 마세요.\n\n",
-            True,
-            "web",
-        )
-    if route.information_route == "memory_context":
-        return (
-            "이 질문은 사용자의 과거 대화, 저장된 선호 또는 기억된 맥락에 관한 요청입니다. "
-            "새 외부 검색을 강제하지 말고 Mnemome 장기 기억을 우선 근거로 답하세요.\n\n",
-            False,
-            None,
-        )
-    return "", False, None
-
-
-def _routing_trace(
-    result: QueryRoutingResult,
-    *,
-    preference_captured: bool,
-    search_enforced: bool,
-    search_domain: str | None,
-) -> dict[str, Any]:
-    route = result.route
-    return {
-        "router_version": route.version,
-        "router_model": result.model,
-        "route_latency_ms": result.latency_ms,
-        "interaction": route.interaction,
-        "information_route": route.information_route,
-        "confidence": route.confidence,
-        "fallback_used": result.fallback_used,
-        "fallback_reason": result.fallback_reason,
-        "preference_captured": preference_captured,
-        "search_enforced": search_enforced,
-        "search_domain": search_domain,
-    }
-
-
 async def _run_lotte_agent(
     application: Any,
     tenant_id: str,
@@ -364,12 +305,12 @@ async def _run_lotte_agent(
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
     stream_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any], dict[str, Any]]:
+) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
     try:
         from lotte_agent import AsyncToolCallingAgent
         from lotte_agent.memory import MemoryEntry, MemoryEntryKind
         from lotte_agent.models import AsyncOpenAIClient
-        from lotte_agent.tools import McpToolSpecClient
+        from lotte_agent.tools import McpToolSpecClient, ToolSpec
 
         from ..integrations.lotte_agent import MnemomeLongTermMemory
     except ImportError as error:
@@ -393,58 +334,11 @@ async def _run_lotte_agent(
     memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
     captured_preference = False
     preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
-    routing_result = await LlmQueryRouter(live_model, model_name=model_name).route(query)
-    route = routing_result.route
-    if routing_result.fallback_used:
-        logger.warning(
-            "Query routing fell back to Agent decision: reason=%s latency_ms=%s",
-            routing_result.fallback_reason,
-            routing_result.latency_ms,
-        )
-    stores_preference = route.interaction in {
-        "store_preference",
-        "answer_and_store_preference",
-    }
-    if stores_preference:
-        preference_instruction = route.preference_instruction or ""
-        duplicate = next(
-            (
-                entry
-                for entry in preferences
-                if entry.content.casefold() == preference_instruction.casefold()
-            ),
-            None,
-        )
-        if duplicate is None:
-            await memory.store(
-                MemoryEntry(
-                    id=f"{run_id}:preference",
-                    kind=MemoryEntryKind.PREFERENCE,
-                    content=preference_instruction,
-                    metadata={
-                        "run_id": run_id,
-                        "source_type": "demo_user_instruction",
-                        "source_id": run_id,
-                        "original_instruction": query,
-                        "router": "llm",
-                        "router_version": route.version,
-                    },
-                    tags=["conversation-derived", "instruction", "llm-routed"],
-                )
-            )
-            captured_preference = True
-            preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
 
     relevant = await memory.search(query, top_k=5)
     recalled = list(preferences)
     recalled.extend(entry for entry in relevant if entry.id not in {item.id for item in recalled})
     recalled = recalled[:8]
-    if recalled:
-        memory_context = "\n".join(
-            f"- [{entry.kind.value}] {entry.content}" for entry in recalled
-        )
-    else:
-        memory_context = "- 관련 장기 기억 없음"
     cultural_context = "\n".join(
         (
             f"- 원칙: {artifact.claim}\n"
@@ -454,19 +348,60 @@ async def _run_lotte_agent(
         )
         for artifact in cultural_artifacts
     ) or "- 적용할 문화적 기억 없음"
-    route_instruction, search_enforced, search_domain = _route_instruction(route)
-    agent_task = (
-        "Mnemome 장기 기억은 사용자의 선호와 과거 대화 맥락으로 사용하세요. "
-        "현재 사실이나 외부 정보가 필요한 질문은 허용된 MCP 도구 결과를 우선 근거로 삼고, "
-        "기억에 저장된 과거 답변을 최신 사실처럼 재사용하지 마세요. "
-        "질문에는 한국어로 답하고 없는 사실은 만들지 마세요. "
-        "출처 링크는 원문 URL을 그대로 노출하지 말고 "
-        "[매체명 또는 문서 제목](URL) 형식의 설명형 Markdown 링크로 작성하세요.\n\n"
-        f"{route_instruction}"
-        "[문화적 기억 - 이 실행에 고정된 응답 원칙]\n"
-        f"{cultural_context}\n\n"
-        f"[Mnemome 장기 기억]\n{memory_context}\n\n"
-        f"[사용자 질문]\n{query}"
+    agent_metadata = {
+        "language": "ko",
+        "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
+        "mnemome": {
+            "preferences": [entry.content for entry in preferences],
+            "recalled_memories": [
+                {"kind": entry.kind.value, "content": entry.content} for entry in recalled
+            ],
+            "cultural_principles": cultural_context,
+        },
+    }
+
+    async def remember_preference(preference: str) -> dict[str, str]:
+        nonlocal captured_preference, preferences, recalled
+        normalized = " ".join(preference.split())
+        if not normalized:
+            raise ValueError("preference must not be empty")
+        duplicate = next(
+            (entry for entry in preferences if entry.content.casefold() == normalized.casefold()),
+            None,
+        )
+        if duplicate is not None:
+            return {"status": "already_exists", "preference": duplicate.content}
+        await memory.store(
+            MemoryEntry(
+                id=f"{run_id}:preference",
+                kind=MemoryEntryKind.PREFERENCE,
+                content=normalized,
+                metadata={
+                    "run_id": run_id,
+                    "source_type": "demo_user_instruction",
+                    "source_id": run_id,
+                    "original_instruction": query,
+                    "prompt_strategy": "unified",
+                },
+                tags=["conversation-derived", "instruction", "agent-stored"],
+            )
+        )
+        captured_preference = True
+        preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
+        recalled = list(preferences)
+        recalled_ids = {item.id for item in recalled}
+        recalled.extend(entry for entry in relevant if entry.id not in recalled_ids)
+        recalled = recalled[:8]
+        return {"status": "stored", "preference": normalized}
+
+    memory_tool = ToolSpec(
+        name="remember_preference",
+        fn=remember_preference,
+        description=(
+            "사용자가 앞으로 반복 적용할 행동이나 응답 선호를 정할 때 그 규칙을 장기 "
+            "기억에 저장합니다. preference에는 트리거와 동작을 포함한 자립적인 한국어 "
+            "규칙을 전달하세요. 단순 질문이나 일회성 요청에는 사용하지 마세요."
+        ),
     )
 
     started = time.perf_counter()
@@ -487,6 +422,7 @@ async def _run_lotte_agent(
                 "조회하는 한국어 Agent. 뉴스와 최신 정보 요청은 search_retrieve를 반드시 "
                 "사용하며, 과거 기억을 현재 사실로 대체하지 않는다."
             ),
+            prompt_template=build_demo_prompt_template(),
             long_term_memory=memory,
             memory_search_top_k=5,
             memory_store_outputs=True,
@@ -500,9 +436,9 @@ async def _run_lotte_agent(
             final_parts: list[str] = []
             async with asyncio.timeout(45):
                 async for chunk in agent.run_stream(
-                    agent_task,
+                    query,
                     run_id=run_id,
-                    metadata={"language": "ko"},
+                    metadata=agent_metadata,
                     tracking_workflow=True,
                     return_trimmed_stream=False,
                 ):
@@ -576,23 +512,15 @@ async def _run_lotte_agent(
                     "tool_count": len(agent_tools),
                     "tools": sorted(tool.name for tool in agent_tools),
                 }
-                tools_for_run = [] if route.interaction == "store_preference" else agent_tools
-                result_text, workflow_payload = await execute_agent(tools_for_run)
+                result_text, workflow_payload = await execute_agent([memory_tool, *agent_tools])
         except Exception:
             if connected:
                 raise
             mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
-            result_text, workflow_payload = await execute_agent([])
+            result_text, workflow_payload = await execute_agent([memory_tool])
     else:
-        result_text, workflow_payload = await execute_agent([])
+        result_text, workflow_payload = await execute_agent([memory_tool])
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
-    routing_trace = _routing_trace(
-        routing_result,
-        preference_captured=captured_preference,
-        search_enforced=search_enforced,
-        search_domain=search_domain,
-    )
-    logger.info("Query route resolved: %s", routing_trace)
     return (
         result_text,
         recalled,
@@ -601,7 +529,6 @@ async def _run_lotte_agent(
         _workflow_trace(workflow_payload),
         captured_preference,
         mcp_status,
-        routing_trace,
     )
 
 
@@ -637,7 +564,6 @@ async def _execute_demo_chat(
             execution_trace,
             preference_captured,
             mcp_status,
-            routing_trace,
         ) = await _run_lotte_agent(
             application,
             tenant_id,
@@ -653,7 +579,7 @@ async def _execute_demo_chat(
             {
                 "status": "answered",
                 "runtime": "lotte-agent",
-                "query_routing": routing_trace,
+                "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
             },
             response_ref=f"demo:{run.run_id}",
         )

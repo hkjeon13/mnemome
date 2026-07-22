@@ -13,6 +13,7 @@ from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
 from mnemome.integrations.lotte_agent import MnemomeLongTermMemory
 from mnemome.service.app import create_app
+from mnemome.service.prompting import PROMPT_OVERLAY_PATH, build_demo_prompt_template
 from mnemome.service.settings import ApiPrincipal, Settings
 
 
@@ -39,9 +40,25 @@ async def test_lotte_memory_protocol_round_trip() -> None:
     assert await memory.retrieve("pref-1") is None
 
 
+def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
+    prompt_template = build_demo_prompt_template()
+    overlay_text = PROMPT_OVERLAY_PATH.read_text(encoding="utf-8")
+
+    assert "STRICT PLAN GENERATION RULES" in prompt_template["plan"]
+    assert "Mnemome unified memory-aware planning policy" in prompt_template["plan"]
+    assert "For targets A, B, and C" in prompt_template["plan"]
+    assert "Now, there is the actual planning task:" in prompt_template["plan"]
+    assert "Now, there is the actual task:" in prompt_template["step"]
+    assert "Final Answer Instruction" in prompt_template["final_instruction"]
+    assert "NVIDIA" not in overlay_text
+    assert "Samsung" not in overlay_text
+    assert "SK hynix" not in overlay_text
+
+
 @pytest.mark.asyncio
 async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> None:
     seen_messages: list[str] = []
+    search_calls: list[dict] = []
 
     class FakeLiveOpenAIModel(AsyncModelBase):
         def __init__(self) -> None:
@@ -51,63 +68,54 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             del args, kwargs
             message_text = str(messages)
             seen_messages.append(message_text)
-            if "QUERY_ROUTER_V1" in message_text:
+            if "Now, there is the actual planning task:" in message_text:
                 if "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이" in message_text:
-                    text = json.dumps(
-                        {
-                            "version": "query-route-v1",
-                            "interaction": "store_preference",
-                            "preference_instruction": (
-                                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 "
-                                "함께 포함한다."
-                            ),
-                            "information_route": "general_or_agent_decides",
-                            "search_query": None,
-                            "confidence": 0.98,
-                        },
-                        ensure_ascii=False,
+                    text = (
+                        '("[remember_preference] 엔비디아 뉴스 선호 저장하기", '
+                        '"[final_answer] 저장 결과 안내하기")'
                     )
                 elif "내가 지금까지 뉴스 물어본 기업들은?" in message_text:
-                    text = json.dumps(
-                        {
-                            "version": "query-route-v1",
-                            "interaction": "answer",
-                            "preference_instruction": None,
-                            "information_route": "memory_context",
-                            "search_query": None,
-                            "confidence": 0.99,
-                        },
-                        ensure_ascii=False,
-                    )
-                elif "엔비디아 뉴스" in message_text:
-                    text = json.dumps(
-                        {
-                            "version": "query-route-v1",
-                            "interaction": "answer",
-                            "preference_instruction": None,
-                            "information_route": "fresh_news",
-                            "search_query": "엔비디아 뉴스",
-                            "confidence": 0.99,
-                        },
-                        ensure_ascii=False,
+                    text = '("[final_answer] 저장된 뉴스 기업 기억으로 답변하기",)'
+                elif (
+                    "엔비디아 뉴스" in message_text
+                    and "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다" in message_text
+                ):
+                    text = (
+                        '({"[search_retrieve] 엔비디아 뉴스 조회하기", '
+                        '"[search_retrieve] 삼성전자 뉴스 조회하기", '
+                        '"[search_retrieve] SK하이닉스 뉴스 조회하기"}, '
+                        '"[final_answer] 기업별 최신 뉴스 요약하기")'
                     )
                 else:
-                    text = json.dumps(
+                    text = '("[final_answer] 저장된 장기 기억으로 한국어 답변하기",)'
+                return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
+            if "Tool: remember_preference" in message_text:
+                text = json.dumps(
+                    [
                         {
-                            "version": "query-route-v1",
-                            "interaction": "answer",
-                            "preference_instruction": None,
-                            "information_route": "general_or_agent_decides",
-                            "search_query": None,
-                            "confidence": 0.9,
+                            "preference": (
+                                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 "
+                                "함께 포함한다."
+                            )
                         }
-                    )
+                    ],
+                    ensure_ascii=False,
+                )
+                return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
+            if "Tool: search_retrieve" in message_text:
+                if "SK하이닉스 뉴스 조회하기" in message_text:
+                    query = "SK하이닉스 뉴스"
+                elif "삼성전자 뉴스 조회하기" in message_text:
+                    query = "삼성전자 뉴스"
+                else:
+                    query = "엔비디아 뉴스"
+                text = json.dumps(
+                    [{"query": query, "domain": "news", "limit": 5}],
+                    ensure_ascii=False,
+                )
                 return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             self.calls += 1
-            if self.calls == 1:
-                text = '("[final_answer] 저장된 장기 기억으로 한국어 답변",)'
-            else:
-                text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
+            text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
             return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
 
         def generate_stream(self, messages, *args, **kwargs):
@@ -120,6 +128,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
     import lotte_agent.tools
 
     async def fake_tool(**kwargs):
+        search_calls.append(kwargs)
         return kwargs
 
     class FakeMcpClient:
@@ -293,12 +302,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "tool_count": 1,
                 "tools": ["search_retrieve"],
             }
-            assert any("[Mnemome 장기 기억]" in messages for messages in seen_messages)
-            assert any("[문화적 기억" in messages for messages in seen_messages)
             assert any(
-                "단순히 '분쟁지역'이라고 규정하지 않는다" in messages
-                for messages in seen_messages
+                "Mnemome unified memory-aware planning policy" in item
+                for item in seen_messages
             )
+            assert any('"recalled_memories"' in item for item in seen_messages)
+            assert any('"cultural_principles"' in item for item in seen_messages)
+            assert any("독도 관련 질문" in messages for messages in seen_messages)
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
             preference_text = "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이"
@@ -312,14 +322,23 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert preference_response.status_code == 200, preference_response.text
             assert preference_response.json()["preference_captured"] is True
             preference_messages = seen_messages[preference_message_start:]
-            assert not any("반드시 search_retrieve" in item for item in preference_messages)
+            assert any("Tool: remember_preference" in item for item in preference_messages)
+            assert search_calls == []
 
             follow_up_message_start = len(seen_messages)
             follow_up = await client.post("/demo/api/chat", json={"query": "엔비디아 뉴스"})
             assert follow_up.status_code == 200, follow_up.text
             follow_up_messages = seen_messages[follow_up_message_start:]
             assert any(normalized_preference in item for item in follow_up_messages)
-            assert any("최신 뉴스 확인이 필요한 요청" in item for item in follow_up_messages)
+            assert any("one retrieval tool" in item for item in follow_up_messages)
+            assert any("Do not plan search A B C" in item for item in follow_up_messages)
+            assert {call["query"] for call in search_calls} == {
+                "엔비디아 뉴스",
+                "삼성전자 뉴스",
+                "SK하이닉스 뉴스",
+            }
+            assert all(call["domain"] == "news" for call in search_calls)
+            assert all(call["limit"] == 5 for call in search_calls)
 
             memory_message_start = len(seen_messages)
             memory_query = await client.post(
@@ -327,8 +346,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert memory_query.status_code == 200, memory_query.text
             memory_messages = seen_messages[memory_message_start:]
-            assert any("Mnemome 장기 기억을 우선 근거로" in item for item in memory_messages)
-            assert not any("반드시 search_retrieve" in item for item in memory_messages)
+            assert any(normalized_preference in item for item in memory_messages)
+            assert len(search_calls) == 3
 
             memories = await client.get("/demo/api/memories")
             assert memories.json()["seeded_count"] == 3
@@ -347,12 +366,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             preferences = [
                 item for item in memories.json()["items"] if item["kind"] == "preference"
             ]
-            routed_preference = next(
+            stored_preference = next(
                 item for item in preferences if item["content"] == normalized_preference
             )
-            assert routed_preference["metadata"]["original_instruction"] == preference_text
-            assert routed_preference["metadata"]["router"] == "llm"
-            assert routed_preference["metadata"]["router_version"] == "query-route-v1"
+            assert stored_preference["metadata"]["original_instruction"] == preference_text
+            assert stored_preference["metadata"]["prompt_strategy"] == "unified"
 
             seeded = next(item for item in memories.json()["items"] if item["is_seed"])
             protected = await client.delete(f"/demo/api/memories/{seeded['id']}")
