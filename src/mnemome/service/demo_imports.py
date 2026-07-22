@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import secrets
 from collections import OrderedDict, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
@@ -25,6 +27,7 @@ MAX_HF_ROWS = 1_000
 MAX_PREPARATIONS = 100
 MAX_IMPORT_JOBS = 100
 MAX_IMPORT_MEMORIES = 40
+MAX_DEMO_MEMORIES = 500
 DEFAULT_SAMPLE_SIZE = 5
 
 
@@ -71,25 +74,46 @@ class _ImportJob:
     job_id: str
     tenant_id: str
     preparation_id: str
+    source_label: str
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     status: str = "QUEUED"
     stage: str = "대기 중"
+    resumable_stage: str = "대기 중"
     progress: int = 0
     completed_sessions: int = 0
     created_memories: int = 0
+    created_cultural_memories: int = 0
     total_sessions: int = 0
+    memory_counts: dict[str, int] = field(
+        default_factory=lambda: {
+            "conversation": 0,
+            "fact": 0,
+            "preference": 0,
+            "episode": 0,
+            "culture": 0,
+        }
+    )
     result: dict[str, Any] | None = None
     error: str | None = None
+    resume_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+
+    def __post_init__(self) -> None:
+        self.resume_event.set()
 
     def payload(self) -> dict[str, Any]:
         return {
             "job_id": self.job_id,
             "preparation_id": self.preparation_id,
+            "source_label": self.source_label,
+            "created_at": self.created_at,
             "status": self.status,
             "stage": self.stage,
             "progress": self.progress,
             "completed_sessions": self.completed_sessions,
             "created_memories": self.created_memories,
+            "created_cultural_memories": self.created_cultural_memories,
             "total_sessions": self.total_sessions,
+            "memory_counts": dict(self.memory_counts),
             "result": self.result,
             "error": self.error,
         }
@@ -533,6 +557,99 @@ async def _llm_code(
         return fallback, "structure profiler fallback"
 
 
+def _memory_extraction_fallback(conversation: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    first_user = next(
+        (
+            str(turn.get("content") or "").strip()
+            for turn in conversation
+            if turn.get("role") == "user"
+        ),
+        "",
+    )
+    last_assistant = next(
+        (
+            str(turn.get("content") or "").strip()
+            for turn in reversed(conversation)
+            if turn.get("role") == "assistant"
+        ),
+        "",
+    )
+    episode = ""
+    if first_user and last_assistant:
+        episode = (
+            f"사용자가 '{first_user[:500]}'라고 요청했고, "
+            f"Assistant가 '{last_assistant[:900]}'라고 응답했다."
+        )
+    return {
+        "facts": [],
+        "preferences": [],
+        "episodes": [{"content": episode, "confidence": 0.55}] if episode else [],
+        "culture": [],
+    }
+
+
+def _bounded_extraction(payload: Any) -> dict[str, list[dict[str, Any]]]:
+    source = payload if isinstance(payload, dict) else {}
+
+    def items(name: str, limit: int) -> list[dict[str, Any]]:
+        raw = source.get(name, [])
+        if not isinstance(raw, list):
+            return []
+        return [dict(item) for item in raw[:limit] if isinstance(item, dict)]
+
+    return {
+        "facts": items("facts", 3),
+        "preferences": items("preferences", 2),
+        "episodes": items("episodes", 2),
+        "culture": items("culture", 1),
+    }
+
+
+async def _extract_session_memories(
+    conversation: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    fallback = _memory_extraction_fallback(conversation)
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return fallback
+    try:
+        from lotte_agent.models import AsyncOpenAIClient
+
+        model = AsyncOpenAIClient(
+            api_key=api_key,
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+            base_url=os.getenv("OPENAI_BASE_URL", "").strip() or None,
+        )
+        transcript = json.dumps(conversation, ensure_ascii=False, default=str)[:20_000]
+        output = await model.generate(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "대화에서 장기 기억으로 재사용할 명시적 정보만 추출한다. "
+                        "추측하거나 일반 상식을 "
+                        "추가하지 않는다. JSON object만 반환한다. schema: "
+                        '{"facts":[{"content":str,"confidence":0..1}],'
+                        '"preferences":[{"content":str,"condition":str,"action":str,"confidence":0..1}],'
+                        '"episodes":[{"content":str,"confidence":0..1}],'
+                        '"culture":[{"claim":str,"conditions":[str],"restrictions":[str],'
+                        '"recovery":str,"confidence":0..1}]}. '
+                        "facts는 지속 가능한 사용자/업무 사실, preferences는 반복 적용할 "
+                        "사용자 선호, episodes는 중요한 수행 경험이나 결과, culture는 개인 "
+                        "선호가 아닌 명시적인 공유 규범만 포함한다. 각 배열은 최대 facts 3, "
+                        "preferences 2, episodes 2, culture 1개다."
+                    ),
+                },
+                {"role": "user", "content": transcript},
+            ]
+        )
+        parsed = json.loads(_strip_code_fence(str(output.text or "")))
+        return _bounded_extraction(parsed)
+    except Exception:
+        logger.exception("Import memory extraction failed; using conservative fallback")
+        return fallback
+
+
 def _feature_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     features = []
     for key in sorted({str(key) for row in rows for key in row}):
@@ -722,7 +839,9 @@ class DemoImportStudio:
         preparation.generator = "user edited"
         return self._preview_payload(preparation, rows, body.code, result)
 
-    async def _all_rows(self, preparation: _Preparation) -> list[dict[str, Any]]:
+    async def _all_rows(
+        self, preparation: _Preparation, job: _ImportJob | None = None
+    ) -> list[dict[str, Any]]:
         if preparation.source.type == "local":
             return preparation.rows
         if preparation.total_rows > MAX_HF_ROWS:
@@ -732,6 +851,8 @@ class DemoImportStudio:
             )
         rows: list[dict[str, Any]] = []
         for offset in range(0, preparation.total_rows, 100):
+            if job is not None:
+                await self._checkpoint(job)
             payload = await self._hf_request(
                 preparation.source,
                 "rows",
@@ -768,6 +889,9 @@ class DemoImportStudio:
             job_id=f"mij_{secrets.token_urlsafe(8)}",
             tenant_id=tenant_id,
             preparation_id=preparation_id,
+            source_label=(
+                preparation.source.file_name or preparation.source.repo_id or "대화 데이터"
+            )[:300],
         )
         async with self._lock:
             self._jobs[job.job_id] = job
@@ -777,7 +901,7 @@ class DemoImportStudio:
                     (
                         job_id
                         for job_id, candidate in self._jobs.items()
-                        if candidate.status in {"COMPLETED", "FAILED"}
+                        if candidate.status in {"COMPLETED", "FAILED", "CANCELLED"}
                     ),
                     None,
                 )
@@ -794,10 +918,158 @@ class DemoImportStudio:
         return job.payload()
 
     def job_status(self, tenant_id: str, job_id: str) -> dict[str, Any]:
+        return self._job(tenant_id, job_id).payload()
+
+    async def list_jobs(self, tenant_id: str, application: Any) -> dict[str, Any]:
+        jobs = [job.payload() for job in self._jobs.values() if job.tenant_id == tenant_id]
+        live_ids = {job["job_id"] for job in jobs}
+        recovered: dict[str, dict[str, Any]] = {}
+        memories = await application.list_facts(
+            tenant_id, include_suppressed=False, limit=MAX_DEMO_MEMORIES
+        )
+        for memory in memories:
+            job_id = str(memory.metadata.get("import_job_id") or "")
+            if not job_id or job_id in live_ids:
+                continue
+            item = recovered.setdefault(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "preparation_id": "",
+                    "source_label": str(memory.metadata.get("source_label") or "대화 데이터"),
+                    "created_at": memory.created_at.isoformat(),
+                    "status": "INTERRUPTED",
+                    "stage": "서버 재시작 후 복구된 작업",
+                    "progress": 0,
+                    "completed_sessions": 0,
+                    "created_memories": 0,
+                    "created_cultural_memories": 0,
+                    "total_sessions": 0,
+                    "memory_counts": {
+                        "conversation": 0,
+                        "fact": 0,
+                        "preference": 0,
+                        "episode": 0,
+                        "culture": 0,
+                    },
+                    "result": None,
+                    "error": "서버 재시작으로 실행 상태가 종료되었습니다.",
+                    "_sessions": set(),
+                },
+            )
+            item["created_memories"] += 1
+            if memory.kind in item["memory_counts"]:
+                item["memory_counts"][memory.kind] += 1
+            session_id = str(memory.metadata.get("source_session_id") or "")
+            if session_id:
+                item["_sessions"].add(session_id)
+            item["total_sessions"] = max(
+                item["total_sessions"],
+                int(memory.metadata.get("import_total_sessions") or 0),
+            )
+
+        for artifact in await application.list_cultural_artifacts(tenant_id, scope="default"):
+            job_id = str(artifact.metadata.get("import_job_id") or "")
+            if not job_id or job_id in live_ids:
+                continue
+            item = recovered.get(job_id)
+            if item is None:
+                continue
+            item["created_cultural_memories"] += 1
+            item["memory_counts"]["culture"] += 1
+
+        for item in recovered.values():
+            item["completed_sessions"] = len(item.pop("_sessions"))
+            if item["total_sessions"] and item["completed_sessions"] >= item["total_sessions"]:
+                item["status"] = "COMPLETED"
+                item["stage"] = "메모리 반영 완료"
+                item["progress"] = 100
+                item["error"] = None
+            jobs.append(item)
+        jobs.sort(key=lambda item: item["created_at"], reverse=True)
+        return {"items": jobs}
+
+    def _job(self, tenant_id: str, job_id: str) -> _ImportJob:
         job = self._jobs.get(job_id)
         if job is None or job.tenant_id != tenant_id:
             raise HTTPException(status_code=404, detail="import job을 찾을 수 없습니다.")
+        return job
+
+    async def pause_job(self, tenant_id: str, job_id: str) -> dict[str, Any]:
+        job = self._job(tenant_id, job_id)
+        if job.status not in {"QUEUED", "RUNNING"}:
+            raise HTTPException(status_code=409, detail="실행 중인 작업만 일시정지할 수 있습니다.")
+        job.resumable_stage = job.stage
+        job.resume_event.clear()
+        job.status = "PAUSED"
+        job.stage = "일시정지됨"
         return job.payload()
+
+    async def resume_job(self, tenant_id: str, job_id: str) -> dict[str, Any]:
+        job = self._job(tenant_id, job_id)
+        if job.status != "PAUSED":
+            raise HTTPException(status_code=409, detail="일시정지된 작업만 재개할 수 있습니다.")
+        job.status = "RUNNING"
+        job.stage = job.resumable_stage
+        job.resume_event.set()
+        return job.payload()
+
+    async def delete_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+        application: Any,
+    ) -> dict[str, int | bool]:
+        job = self._jobs.get(job_id)
+        if job is not None and job.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="import job을 찾을 수 없습니다.")
+        task = self._tasks.get(job_id)
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        deleted_memories = 0
+        found = job is not None
+        for memory in await application.list_facts(
+            tenant_id, include_suppressed=False, limit=MAX_DEMO_MEMORIES
+        ):
+            if str(memory.metadata.get("import_job_id") or "") != job_id:
+                continue
+            found = True
+            await application.suppress_fact(tenant_id, memory.fact_id)
+            deleted_memories += 1
+
+        deleted_cultural = 0
+        artifacts = await application.list_cultural_artifacts(tenant_id, scope="default")
+        for artifact in artifacts:
+            if str(artifact.metadata.get("import_job_id") or "") != job_id:
+                continue
+            found = True
+            await application.withdraw_cultural_artifact(tenant_id, artifact.artifact_id)
+            deleted_cultural += 1
+        if deleted_cultural:
+            await application.publish_cultural_snapshot(
+                tenant_id,
+                "default",
+                policy_version="mnemome-import-auto-v1",
+            )
+        if not found:
+            raise HTTPException(status_code=404, detail="import job을 찾을 수 없습니다.")
+
+        async with self._lock:
+            self._jobs.pop(job_id, None)
+            self._tasks.pop(job_id, None)
+        return {
+            "deleted": True,
+            "deleted_memories": deleted_memories,
+            "deleted_cultural_memories": deleted_cultural,
+        }
+
+    async def _checkpoint(self, job: _ImportJob) -> None:
+        if job.resume_event.is_set():
+            return
+        await job.resume_event.wait()
 
     async def _run_process(
         self,
@@ -807,10 +1079,13 @@ class DemoImportStudio:
         application: Any,
     ) -> None:
         try:
-            job.status = "RUNNING"
-            job.stage = "전체 row 불러오는 중"
+            job.resumable_stage = "전체 row 불러오는 중"
+            if job.resume_event.is_set():
+                job.status = "RUNNING"
+                job.stage = job.resumable_stage
             job.progress = 10
             await asyncio.sleep(0)
+            await self._checkpoint(job)
             result = await self._execute_process(job, preparation, code, application)
             job.result = result
             job.status = "COMPLETED"
@@ -820,6 +1095,10 @@ class DemoImportStudio:
             job.status = "FAILED"
             job.stage = "Processing 실패"
             job.error = str(error.detail)[:500]
+        except asyncio.CancelledError:
+            job.status = "CANCELLED"
+            job.stage = "삭제 중"
+            raise
         except Exception:
             logger.exception("Background import job failed", extra={"job_id": job.job_id})
             job.status = "FAILED"
@@ -836,8 +1115,7 @@ class DemoImportStudio:
         application: Any,
     ) -> dict[str, Any]:
         tenant_id = job.tenant_id
-        preparation_id = job.preparation_id
-        rows = await self._all_rows(preparation)
+        rows = await self._all_rows(preparation, job)
         job.stage = "session 대화로 변환하는 중"
         job.progress = 35
         try:
@@ -853,10 +1131,11 @@ class DemoImportStudio:
                     f"데모에서는 한 번에 session {MAX_IMPORT_MEMORIES}개까지 메모리로 저장합니다."
                 ),
             )
-        job.stage = "대화 메모리에 반영하는 중"
-        job.progress = 60
-        existing = await application.list_facts(tenant_id, limit=100)
-        capacity = max(0, 50 - len(existing))
+        job.stage = "대화와 파생 메모리를 분석하는 중"
+        job.resumable_stage = job.stage
+        job.progress = 40
+        existing = await application.list_facts(tenant_id, limit=MAX_DEMO_MEMORIES)
+        capacity = max(0, MAX_DEMO_MEMORIES - len(existing))
         existing_keys = {
             str(item.metadata.get("import_key"))
             for item in existing
@@ -864,8 +1143,12 @@ class DemoImportStudio:
         }
         code_digest = hashlib.sha256(code.encode()).hexdigest()
         created = 0
+        created_cultural = 0
         duplicates = 0
         for index, session in enumerate(sessions):
+            await self._checkpoint(job)
+            job.stage = f"session {index + 1}/{len(sessions)} 분석 중"
+            job.resumable_stage = job.stage
             import_key = _json_digest(
                 {
                     "source": preparation.source.file_name or preparation.source.repo_id,
@@ -876,11 +1159,12 @@ class DemoImportStudio:
             if import_key in existing_keys:
                 duplicates += 1
                 job.completed_sessions = index + 1
-                job.progress = 60 + int((index + 1) / max(1, len(sessions)) * 35)
+                job.progress = 40 + int((index + 1) / max(1, len(sessions)) * 55)
                 continue
             if created >= capacity:
                 raise HTTPException(
-                    status_code=409, detail="데모 세션의 메모리 50개 제한을 초과합니다."
+                    status_code=409,
+                    detail=f"데모 세션의 메모리 {MAX_DEMO_MEMORIES}개 제한을 초과합니다.",
                 )
             conversation = session["conversation"]
             first_user = next(
@@ -892,16 +1176,21 @@ class DemoImportStudio:
                 conversation[-1]["content"],
             )
             statement = last_assistant.strip() or first_user.strip() or "가져온 대화"
-            await application.create_fact(
+            await self._checkpoint(job)
+            conversation_memory = await application.create_fact(
                 tenant_id,
                 statement[:20_000],
-                sources=(SourceRef("demo_import", f"{preparation_id}:{session['sessionId']}"),),
+                sources=(SourceRef("demo_import", f"{job.job_id}:{session['sessionId']}"),),
                 kind="conversation",
                 tags=("imported", "conversation"),
                 metadata={
                     "created_via": "import_studio",
+                    "import_job_id": job.job_id,
+                    "import_memory_role": "source",
                     "source_label": preparation.source.file_name or preparation.source.repo_id,
                     "source_session_id": session["sessionId"],
+                    "import_session_index": index,
+                    "import_total_sessions": len(sessions),
                     "task_text": f"[사용자 질문]\n{first_user[:10_000]}",
                     "turn_count": len(conversation),
                     "transform_code_digest": code_digest,
@@ -910,11 +1199,125 @@ class DemoImportStudio:
             )
             existing_keys.add(import_key)
             created += 1
+            job.memory_counts["conversation"] += 1
             job.created_memories = created
+
+            await self._checkpoint(job)
+            extraction = await _extract_session_memories(conversation)
+            await self._checkpoint(job)
+            base_metadata = {
+                "created_via": "import_studio_auto_extract",
+                "import_job_id": job.job_id,
+                "import_memory_role": "derived",
+                "source_label": preparation.source.file_name or preparation.source.repo_id,
+                "source_session_id": session["sessionId"],
+                "import_session_index": index,
+                "import_total_sessions": len(sessions),
+                "source_conversation_memory_id": conversation_memory.fact_id,
+                "transform_code_digest": code_digest,
+            }
+            for kind, extraction_key in (
+                ("fact", "facts"),
+                ("preference", "preferences"),
+                ("episode", "episodes"),
+            ):
+                for item_index, item in enumerate(extraction[extraction_key]):
+                    await self._checkpoint(job)
+                    content = str(item.get("content") or "").strip()
+                    if not content:
+                        continue
+                    if created >= capacity:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(f"데모 세션의 메모리 {MAX_DEMO_MEMORIES}개 제한을 초과합니다."),
+                        )
+                    try:
+                        confidence = min(1.0, max(0.0, float(item.get("confidence", 0.75))))
+                    except (TypeError, ValueError):
+                        confidence = 0.75
+                    metadata = dict(base_metadata)
+                    if kind == "preference":
+                        metadata.update(
+                            {
+                                "preference_condition": str(item.get("condition") or "").strip(),
+                                "preference_action": str(item.get("action") or content).strip(),
+                            }
+                        )
+                    await application.create_fact(
+                        tenant_id,
+                        content[:20_000],
+                        confidence=confidence,
+                        sources=(
+                            SourceRef(
+                                "demo_import_derived",
+                                f"{job.job_id}:{session['sessionId']}:{kind}:{item_index}",
+                            ),
+                        ),
+                        kind=kind,
+                        tags=("imported", "auto-extracted", kind),
+                        metadata=metadata,
+                    )
+                    created += 1
+                    job.memory_counts[kind] += 1
+                    job.created_memories = created
+
+            cultural_created_for_session = False
+            for item_index, item in enumerate(extraction["culture"]):
+                await self._checkpoint(job)
+                claim = str(item.get("claim") or "").strip()
+                if not claim:
+                    continue
+                conditions = item.get("conditions")
+                restrictions = item.get("restrictions")
+                try:
+                    confidence = min(1.0, max(0.0, float(item.get("confidence", 0.75))))
+                except (TypeError, ValueError):
+                    confidence = 0.75
+                await application.create_cultural_artifact(
+                    tenant_id,
+                    "default",
+                    claim[:20_000],
+                    conditions=tuple(
+                        str(value).strip()[:2_000]
+                        for value in (conditions if isinstance(conditions, list) else [])
+                        if str(value).strip()
+                    ),
+                    restrictions=tuple(
+                        str(value).strip()[:2_000]
+                        for value in (restrictions if isinstance(restrictions, list) else [])
+                        if str(value).strip()
+                    ),
+                    recovery=str(item.get("recovery") or "").strip()[:4_000] or None,
+                    evidence_refs=(
+                        SourceRef(
+                            "demo_import_derived",
+                            f"{job.job_id}:{session['sessionId']}:culture:{item_index}",
+                        ),
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "confidence": confidence,
+                        "read_only": True,
+                        "label": "대화 데이터에서 자동 추출",
+                    },
+                )
+                created_cultural += 1
+                job.created_cultural_memories = created_cultural
+                job.memory_counts["culture"] += 1
+                cultural_created_for_session = True
+            if cultural_created_for_session:
+                await application.publish_cultural_snapshot(
+                    tenant_id,
+                    "default",
+                    policy_version="mnemome-import-auto-v1",
+                )
+
             job.completed_sessions = index + 1
-            job.progress = 60 + int((index + 1) / max(1, len(sessions)) * 35)
+            job.progress = 40 + int((index + 1) / max(1, len(sessions)) * 55)
+        await self._checkpoint(job)
         return {
             "created": created,
+            "created_cultural": created_cultural,
             "duplicates": duplicates,
             "sessions": len(sessions),
             "turns": result["stats"]["turns"],

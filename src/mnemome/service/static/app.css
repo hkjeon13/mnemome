@@ -68,6 +68,7 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .memory-panel.is-collapsed .panel-heading { order: 0; width: 100%; margin: 0; justify-content: center; }
 .memory-panel.is-collapsed .panel-heading > div:first-child,
 .memory-panel.is-collapsed .sidebar-tabs,
+.memory-panel.is-collapsed .import-job-queue,
 .memory-panel.is-collapsed .trace-section,
 .memory-panel.is-collapsed .sidebar-view,
 .memory-panel.is-collapsed .import-button,
@@ -139,6 +140,37 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .sidebar-tabs button.active { color: var(--text); }
 .sidebar-tabs button.active::after { position: absolute; right: 0; bottom: -0.0625rem; left: 0; height: 0.125rem; background: var(--text); content: ""; }
 .sidebar-view[hidden] { display: none; }
+.import-job-queue { flex: 0 0 auto; margin: -0.5rem 0 1rem; padding: 0.75rem; border: 0.0625rem solid #dfe7e1; border-radius: 0.75rem; background: #f8fbf9; }
+.import-job-queue[hidden] { display: none; }
+.import-job-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.625rem; }
+.import-job-queue-heading .panel-kicker { margin-bottom: 0.125rem; font-size: 0.4375rem; }
+.import-job-queue-heading strong { display: block; font-size: 0.6875rem; }
+.import-job-queue-heading > span { display: grid; min-width: 1.25rem; height: 1.25rem; place-items: center; border-radius: 50%; background: #e5eee8; color: #315e43; font-size: 0.5625rem; font-weight: 800; }
+.import-job-list { display: grid; max-height: 13.5rem; gap: 0.5rem; overflow-y: auto; scrollbar-color: #bdc9c0 transparent; }
+.import-job-card { position: relative; padding: 0.625rem; border: 0.0625rem solid #dce4de; border-radius: 0.625rem; background: #fff; }
+.import-job-summary { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.import-job-title { display: flex; min-width: 0; align-items: center; gap: 0.4375rem; }
+.import-job-title strong { overflow: hidden; color: #303833; font-size: 0.625rem; text-overflow: ellipsis; white-space: nowrap; }
+.import-job-status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; color: #487158; font-size: 0.5rem; font-weight: 750; }
+.import-job-status::before { width: 0.3125rem; height: 0.3125rem; border-radius: 50%; background: currentColor; content: ""; }
+.status-running .import-job-status::before, .status-queued .import-job-status::before { width: 0.4375rem; height: 0.4375rem; border: 0.09375rem solid #b8cbbf; border-top-color: #39704f; background: transparent; animation: step-spin 0.8s linear infinite; }
+.status-paused .import-job-status { color: #8a6b31; }
+.status-completed .import-job-status { color: #52715d; }
+.status-failed .import-job-status, .status-cancelled .import-job-status, .status-interrupted .import-job-status { color: #9a5656; }
+.import-job-more { display: grid; flex: 0 0 auto; width: 1.5rem; height: 1.5rem; place-items: center; padding: 0 0 0.375rem; border: 0; border-radius: 0.375rem; background: transparent; color: #777; font-size: 1rem; cursor: pointer; }
+.import-job-more:hover, .import-job-card.menu-open .import-job-more { background: #edf1ee; color: #222; }
+.import-job-stage { margin-top: 0.375rem; overflow: hidden; color: #6f7771; font-size: 0.53125rem; text-overflow: ellipsis; white-space: nowrap; }
+.import-job-progress { height: 0.25rem; margin-top: 0.5rem; overflow: hidden; border-radius: 999px; background: #edf0ee; }
+.import-job-progress span { display: block; height: 100%; border-radius: inherit; background: #548265; transition: width 0.25s ease; }
+.status-paused .import-job-progress span { background: #ad8c50; }
+.status-failed .import-job-progress span { background: #a96b6b; }
+.import-job-meta { margin-top: 0.375rem; overflow: hidden; color: #818782; font-size: 0.46875rem; text-overflow: ellipsis; white-space: nowrap; }
+.import-job-menu { position: absolute; top: 2rem; right: 0.5rem; z-index: 6; display: none; min-width: 6.5rem; padding: 0.25rem; border: 0.0625rem solid #d8ddd9; border-radius: 0.5rem; background: #fff; box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.12); }
+.import-job-card.menu-open .import-job-menu { display: grid; }
+.import-job-menu button { padding: 0.4375rem 0.5rem; border: 0; border-radius: 0.375rem; background: transparent; color: #444; font-size: 0.5625rem; text-align: left; cursor: pointer; }
+.import-job-menu button:hover { background: #f1f3f1; }
+.import-job-menu button.danger { color: #9a5656; }
+.import-job-menu button.danger:hover { background: #faf0f0; }
 .memory-view { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .memory-toolbar { display: flex; gap: 0.5rem; }
 .search-field { display: flex; flex: 1; align-items: center; gap: 0.4375rem; padding: 0 0.625rem; border: 0.0625rem solid var(--line); border-radius: 0.625rem; background: #fff; }
@@ -186,6 +218,7 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .delete-memory:hover { background: #eeeeee; color: var(--danger); }
 .memory-card.seeded { border-color: #dddddd; background: #fdfdfd; }
 .seed-badge { position: absolute; top: 0.75rem; right: 0.6875rem; padding: 0.25rem 0.375rem; border-radius: 0.3125rem; background: var(--mint-soft); color: #666666; font-size: 0.5rem; font-weight: 700; }
+.import-badge { background: #f2eef7; color: #76579b; }
 .empty-state { display: grid; place-items: center; min-height: 13.75rem; padding: 1.875rem; text-align: center; color: var(--muted); font-size: 0.75rem; line-height: 1.7; }
 
 .culture-view { flex: 1; min-height: 0; padding-right: 0.3125rem; overflow-y: auto; scrollbar-color: #cccccc transparent; }

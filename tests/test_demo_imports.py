@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
+import mnemome.service.demo_imports as demo_imports
 from mnemome.adapters import InMemoryStores
 from mnemome.service.app import create_app
 from mnemome.service.demo_imports import (
@@ -118,7 +120,14 @@ async def test_reused_session_id_is_detected_and_processing_is_blocked() -> None
 
 
 @pytest.mark.asyncio
-async def test_processing_runs_as_background_job_after_request_returns() -> None:
+async def test_processing_runs_as_background_job_after_request_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_extraction(conversation: list[dict[str, object]]) -> dict[str, list[object]]:
+        return {"facts": [], "preferences": [], "episodes": [], "culture": []}
+
+    monkeypatch.setattr(demo_imports, "_extract_session_memories", no_extraction)
+
     class SlowApplication:
         def __init__(self) -> None:
             self.started = asyncio.Event()
@@ -127,9 +136,10 @@ async def test_processing_runs_as_background_job_after_request_returns() -> None
         async def list_facts(self, tenant_id: str, limit: int) -> list[object]:
             return []
 
-        async def create_fact(self, *args: object, **kwargs: object) -> None:
+        async def create_fact(self, *args: object, **kwargs: object) -> object:
             self.started.set()
             await self.release.wait()
+            return SimpleNamespace(fact_id="conversation-memory")
 
     studio = DemoImportStudio()
     prepared = await studio.prepare(
@@ -162,7 +172,7 @@ async def test_processing_runs_as_background_job_after_request_returns() -> None
     await asyncio.wait_for(application.started.wait(), timeout=1)
     running = studio.job_status("tenant", accepted["job_id"])
     assert running["status"] == "RUNNING"
-    assert running["stage"] == "대화 메모리에 반영하는 중"
+    assert running["stage"] == "session 1/1 분석 중"
 
     application.release.set()
     await asyncio.wait_for(studio._tasks[accepted["job_id"]], timeout=1)
@@ -172,7 +182,14 @@ async def test_processing_runs_as_background_job_after_request_returns() -> None
 
 
 @pytest.mark.asyncio
-async def test_processing_persists_each_session_before_job_completion() -> None:
+async def test_processing_persists_each_session_before_job_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_extraction(conversation: list[dict[str, object]]) -> dict[str, list[object]]:
+        return {"facts": [], "preferences": [], "episodes": [], "culture": []}
+
+    monkeypatch.setattr(demo_imports, "_extract_session_memories", no_extraction)
+
     class IncrementalApplication:
         def __init__(self) -> None:
             self.created: list[dict[str, object]] = []
@@ -183,12 +200,13 @@ async def test_processing_persists_each_session_before_job_completion() -> None:
         async def list_facts(self, tenant_id: str, limit: int) -> list[object]:
             return []
 
-        async def create_fact(self, *args: object, **kwargs: object) -> None:
+        async def create_fact(self, *args: object, **kwargs: object) -> object:
             self.calls += 1
             if self.calls == 2:
                 self.second_started.set()
                 await self.release_second.wait()
             self.created.append(kwargs)
+            return SimpleNamespace(fact_id=f"memory-{self.calls}")
 
     studio = DemoImportStudio()
     prepared = await studio.prepare(
@@ -305,7 +323,7 @@ async def test_import_studio_previews_and_persists_conversation_memories(
                 await asyncio.sleep(0)
             assert job["status"] == "COMPLETED"
             assert job["progress"] == 100
-            assert job["result"]["created"] == 1
+            assert job["result"]["created"] == 2
 
             memories = await client.get("/demo/api/memories")
             imported = [
@@ -316,3 +334,131 @@ async def test_import_studio_previews_and_persists_conversation_memories(
             assert len(imported) == 1
             assert imported[0]["kind"] == "conversation"
             assert imported[0]["conversation"]["query"] == "한국어로 답해 줘"
+            derived = [
+                item
+                for item in memories.json()["items"]
+                if item["metadata"].get("created_via") == "import_studio_auto_extract"
+            ]
+            assert len(derived) == 1
+            assert derived[0]["kind"] == "episode"
+
+
+@pytest.mark.asyncio
+async def test_import_job_pause_resume_auto_extract_and_cascade_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extraction_started = asyncio.Event()
+    release_extraction = asyncio.Event()
+
+    async def controlled_extraction(
+        conversation: list[dict[str, object]],
+    ) -> dict[str, list[dict[str, object]]]:
+        extraction_started.set()
+        await release_extraction.wait()
+        return {
+            "facts": [{"content": "프로젝트는 Docker로 배포된다.", "confidence": 0.95}],
+            "preferences": [
+                {
+                    "content": "한국어로 간결하게 답한다.",
+                    "condition": "사용자에게 답변할 때",
+                    "action": "한국어로 간결하게 답한다",
+                    "confidence": 0.9,
+                }
+            ],
+            "episodes": [{"content": "배포 점검을 완료했다.", "confidence": 0.85}],
+            "culture": [
+                {
+                    "claim": "배포 전 readiness를 확인한다.",
+                    "conditions": ["배포 작업"],
+                    "restrictions": ["확인 없이 완료로 표시하지 않는다"],
+                    "recovery": "readiness를 다시 확인한다.",
+                    "confidence": 0.9,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(demo_imports, "_extract_session_memories", controlled_extraction)
+    settings = Settings(
+        environment="test", database_path=":memory:", api_keys={}, log_level="WARNING"
+    )
+    app = create_app(settings, stores=InMemoryStores())
+    rows = [
+        {
+            "sessionId": "controlled-session",
+            "conversation": [
+                {"content": "배포 점검해 줘", "role": "user", "timestamp": ""},
+                {"content": "readiness까지 확인했어요", "role": "assistant", "timestamp": ""},
+            ],
+        }
+    ]
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.get("/demo/api/memories")
+            prepared = (
+                await client.post(
+                    "/demo/api/imports/prepare",
+                    json={
+                        "source": {"type": "local", "file_name": "controlled.json"},
+                        "rows": rows,
+                    },
+                )
+            ).json()
+            accepted = await client.post(
+                f"/demo/api/imports/{prepared['preparation_id']}/process",
+                json={"code": prepared["code"]},
+            )
+            job_id = accepted.json()["job_id"]
+            await asyncio.wait_for(extraction_started.wait(), timeout=1)
+
+            paused = await client.post(f"/demo/api/imports/jobs/{job_id}/pause")
+            assert paused.status_code == 200
+            assert paused.json()["status"] == "PAUSED"
+            release_extraction.set()
+            await asyncio.sleep(0)
+            still_paused = await client.get(f"/demo/api/imports/jobs/{job_id}")
+            assert still_paused.json()["status"] == "PAUSED"
+            assert still_paused.json()["created_memories"] == 1
+
+            resumed = await client.post(f"/demo/api/imports/jobs/{job_id}/resume")
+            assert resumed.status_code == 200
+            for _ in range(100):
+                status = (await client.get(f"/demo/api/imports/jobs/{job_id}")).json()
+                if status["status"] in {"COMPLETED", "FAILED"}:
+                    break
+                await asyncio.sleep(0)
+            assert status["status"] == "COMPLETED"
+            assert status["memory_counts"] == {
+                "conversation": 1,
+                "fact": 1,
+                "preference": 1,
+                "episode": 1,
+                "culture": 1,
+            }
+
+            memories = (await client.get("/demo/api/memories")).json()
+            assert memories["imported_count"] == 4
+            assert (await client.delete("/demo/api/memories")).json()["cleared"] == 0
+            culture = (await client.get("/demo/api/cultural-snapshot")).json()
+            assert any(
+                item["claim"] == "배포 전 readiness를 확인한다." for item in culture["items"]
+            )
+
+            tenant_id = f"demo_{client.cookies.get('mnemome_demo_session')}"
+            recovered_studio = DemoImportStudio()
+            recovered_jobs = await recovered_studio.list_jobs(tenant_id, app.state.application)
+            assert recovered_jobs["items"][0]["status"] == "COMPLETED"
+            assert recovered_jobs["items"][0]["memory_counts"]["preference"] == 1
+            deleted = await recovered_studio.delete_job(tenant_id, job_id, app.state.application)
+            assert deleted["deleted_memories"] == 4
+            assert deleted["deleted_cultural_memories"] == 1
+
+            registry_cleanup = await client.delete(f"/demo/api/imports/jobs/{job_id}")
+            assert registry_cleanup.status_code == 200
+            assert (await client.get("/demo/api/memories")).json()["imported_count"] == 0
+            assert (await client.get("/demo/api/imports/jobs")).json()["items"] == []
+            culture = (await client.get("/demo/api/cultural-snapshot")).json()
+            assert all(
+                item["claim"] != "배포 전 readiness를 확인한다." for item in culture["items"]
+            )

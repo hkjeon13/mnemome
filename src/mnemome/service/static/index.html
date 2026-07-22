@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260722-import-studio-5" />
+    <link rel="stylesheet" href="/static/app.css?v=20260722-import-studio-6" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -113,6 +113,17 @@
             </div>
           </div>
 
+          <section class="import-job-queue" id="import-job-queue" aria-label="데이터 Processing 작업" hidden>
+            <div class="import-job-queue-heading">
+              <div>
+                <span class="panel-kicker">DATA PROCESSING</span>
+                <strong>가져오기 작업</strong>
+              </div>
+              <span id="import-job-count">0</span>
+            </div>
+            <div class="import-job-list" id="import-job-list" aria-live="polite"></div>
+          </section>
+
           <div class="sidebar-tabs" role="tablist" aria-label="사이드바 보기">
             <button class="active" id="memory-view-tab" data-sidebar-view="memory" type="button" role="tab" aria-selected="true" aria-controls="memory-view">메모리</button>
             <button id="culture-view-tab" data-sidebar-view="culture" type="button" role="tab" aria-selected="false" aria-controls="culture-view">문화</button>
@@ -148,7 +159,7 @@
               <span class="read-only-badge">읽기 전용</span>
             </div>
             <p class="culture-description">
-              서버가 게시한 문화적 스냅샷입니다. 이 데모에서는 모든 Agent 실행에 고정되며 사용자가 수정하거나 삭제할 수 없습니다.
+              서버 기본 원칙과 대화 데이터에서 자동 추출된 공유 규범을 함께 게시한 스냅샷입니다. 가져온 규범은 해당 Processing 작업을 삭제하면 함께 제거됩니다.
             </p>
             <div class="culture-snapshot-meta" id="culture-snapshot-meta">스냅샷을 불러오는 중입니다.</div>
             <div class="culture-list" id="culture-list" aria-live="polite"></div>
@@ -348,7 +359,7 @@
         </div>
         <p class="dialog-copy">
           현재 브라우저 세션에서 추가된 사용자 기억 <strong id="clearable-memory-total">0개</strong>가 삭제됩니다.
-          기본 샘플 3개는 유지되며, 삭제한 기억은 되돌릴 수 없습니다.
+          기본 샘플과 가져오기 작업의 메모리는 유지됩니다. 가져온 데이터는 Processing 작업의 … 메뉴에서 삭제할 수 있습니다.
         </p>
         <div class="dialog-actions">
           <button class="secondary-button" value="cancel" type="submit">취소</button>
@@ -358,6 +369,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260722-import-studio-5" defer></script>
+    <script src="/static/app.js?v=20260722-import-studio-6" defer></script>
   </body>
 </html>

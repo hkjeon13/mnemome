@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from ..contracts import OpenRunRequest, SourceRef
 from ..retrieval import recall_backend_label
 from .demo_imports import (
+    MAX_DEMO_MEMORIES,
     DemoImportPrepareBody,
     DemoImportPreviewBody,
     DemoImportProcessBody,
@@ -269,6 +270,7 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
         "source_count": len(fact.sources),
         "metadata": fact.metadata,
         "is_seed": bool(fact.metadata.get("seeded")),
+        "is_imported": bool(fact.metadata.get("import_job_id")),
     }
     query = _conversation_query(fact)
     if query:
@@ -282,6 +284,14 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
 
 def _is_seed_memory(fact: Any) -> bool:
     return bool(fact.metadata.get("seeded"))
+
+
+def _is_import_memory(fact: Any) -> bool:
+    return bool(fact.metadata.get("import_job_id"))
+
+
+def _is_clearable_memory(fact: Any) -> bool:
+    return not _is_seed_memory(fact) and not _is_import_memory(fact)
 
 
 def _workflow_trace(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -789,6 +799,7 @@ def build_demo_router() -> APIRouter:
     limiter = DemoRateLimiter()
     chat_limiter = DemoRateLimiter(requests_per_minute=6)
     global_chat_limiter = DemoRateLimiter(max_sessions=1, requests_per_minute=30)
+    import_job_limiter = DemoRateLimiter(requests_per_minute=180)
     import_studio = DemoImportStudio()
 
     @router.get("/")
@@ -810,7 +821,7 @@ def build_demo_router() -> APIRouter:
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
         await _seed_cultural_memory(application, tenant_id)
-        memories = await application.list_facts(tenant_id, limit=100)
+        memories = await application.list_facts(tenant_id, limit=MAX_DEMO_MEMORIES)
         try:
             import lotte_agent
             from lotte_agent.models import AsyncOpenAIClient  # noqa: F401
@@ -856,11 +867,14 @@ def build_demo_router() -> APIRouter:
         await limiter.check(session_id)
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
-        memories = await application.list_facts(tenant_id, kind=kind, limit=100)
-        clearable_count = sum(not _is_seed_memory(memory) for memory in memories)
+        memories = await application.list_facts(
+            tenant_id, kind=kind, limit=MAX_DEMO_MEMORIES
+        )
+        clearable_count = sum(_is_clearable_memory(memory) for memory in memories)
         return {
             "items": [_memory_payload(memory) for memory in memories],
-            "seeded_count": len(memories) - clearable_count,
+            "seeded_count": sum(_is_seed_memory(memory) for memory in memories),
+            "imported_count": sum(_is_import_memory(memory) for memory in memories),
             "clearable_count": clearable_count,
         }
 
@@ -873,9 +887,12 @@ def build_demo_router() -> APIRouter:
         session_id, tenant_id = _session(request, response)
         await limiter.check(session_id)
         application = request.app.state.application
-        memories = await application.list_facts(tenant_id, limit=100)
-        if len(memories) >= 50:
-            raise HTTPException(status_code=409, detail="데모 세션은 기억을 50개까지 저장합니다.")
+        memories = await application.list_facts(tenant_id, limit=MAX_DEMO_MEMORIES)
+        if len(memories) >= MAX_DEMO_MEMORIES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"데모 세션은 기억을 {MAX_DEMO_MEMORIES}개까지 저장합니다.",
+            )
         memory = await application.create_fact(
             tenant_id,
             body.content,
@@ -895,12 +912,17 @@ def build_demo_router() -> APIRouter:
         session_id, tenant_id = _session(request, response)
         await limiter.check(session_id)
         application = request.app.state.application
-        memories = await application.list_facts(tenant_id, limit=100)
+        memories = await application.list_facts(tenant_id, limit=MAX_DEMO_MEMORIES)
         target = next((memory for memory in memories if memory.fact_id == memory_id), None)
         if target is None:
             raise HTTPException(status_code=404, detail="기억을 찾을 수 없습니다.")
         if _is_seed_memory(target):
             raise HTTPException(status_code=409, detail="기본 샘플 기억은 유지됩니다.")
+        if _is_import_memory(target):
+            raise HTTPException(
+                status_code=409,
+                detail="가져온 기억은 Processing 목록의 작업 메뉴에서 함께 삭제해 주세요.",
+            )
         await application.suppress_fact(tenant_id, memory_id)
         return {"deleted": True}
 
@@ -909,8 +931,8 @@ def build_demo_router() -> APIRouter:
         session_id, tenant_id = _session(request, response)
         await limiter.check(session_id)
         application = request.app.state.application
-        memories = await application.list_facts(tenant_id, limit=100)
-        clearable = [memory for memory in memories if not _is_seed_memory(memory)]
+        memories = await application.list_facts(tenant_id, limit=MAX_DEMO_MEMORIES)
+        clearable = [memory for memory in memories if _is_clearable_memory(memory)]
         for memory in clearable:
             await application.suppress_fact(tenant_id, memory.fact_id)
         return {"cleared": len(clearable), "preserved": len(memories) - len(clearable)}
@@ -959,8 +981,48 @@ def build_demo_router() -> APIRouter:
         response: Response,
     ) -> dict[str, Any]:
         session_id, tenant_id = _session(request, response)
-        await limiter.check(session_id)
+        await import_job_limiter.check(session_id)
         return import_studio.job_status(tenant_id, job_id)
+
+    @router.get("/demo/api/imports/jobs")
+    async def import_jobs(request: Request, response: Response) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await import_job_limiter.check(session_id)
+        return await import_studio.list_jobs(tenant_id, request.app.state.application)
+
+    @router.post("/demo/api/imports/jobs/{job_id}/pause")
+    async def pause_import_job(
+        job_id: str,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await import_job_limiter.check(session_id)
+        return await import_studio.pause_job(tenant_id, job_id)
+
+    @router.post("/demo/api/imports/jobs/{job_id}/resume")
+    async def resume_import_job(
+        job_id: str,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await import_job_limiter.check(session_id)
+        return await import_studio.resume_job(tenant_id, job_id)
+
+    @router.delete("/demo/api/imports/jobs/{job_id}")
+    async def delete_import_job(
+        job_id: str,
+        request: Request,
+        response: Response,
+    ) -> dict[str, int | bool]:
+        session_id, tenant_id = _session(request, response)
+        await import_job_limiter.check(session_id)
+        return await import_studio.delete_job(
+            tenant_id,
+            job_id,
+            request.app.state.application,
+        )
 
     @router.post("/demo/api/chat")
     async def chat(

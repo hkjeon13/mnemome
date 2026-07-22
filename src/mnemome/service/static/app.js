@@ -16,9 +16,9 @@ const state = {
   importPreviewFresh: false,
   importProcessingAllowed: false,
   importBusy: false,
-  importJobId: null,
+  importJobs: [],
   importJobPollTimer: null,
-  importRenderedMemories: 0,
+  importJobsInitialized: false,
 };
 
 const elements = {
@@ -39,6 +39,9 @@ const elements = {
   openMemoryForm: document.querySelector("#open-memory-form"),
   openNewConversation: document.querySelector("#open-new-conversation"),
   clearSessionMemories: document.querySelector("#clear-session-memories"),
+  importJobQueue: document.querySelector("#import-job-queue"),
+  importJobList: document.querySelector("#import-job-list"),
+  importJobCount: document.querySelector("#import-job-count"),
   toggleMemoryPanel: document.querySelector("#toggle-memory-panel"),
   memoryPanel: document.querySelector(".memory-panel"),
   workspace: document.querySelector(".workspace"),
@@ -182,7 +185,7 @@ function renderMemories() {
   for (const memory of filtered) {
     const card = document.createElement("article");
     const selected = memory.id === state.selectedMemoryId;
-    card.className = `memory-card${memory.is_seed ? " seeded" : ""}${selected ? " selected" : ""}`;
+    card.className = `memory-card${memory.is_seed ? " seeded" : ""}${memory.is_imported ? " imported" : ""}${selected ? " selected" : ""}`;
     card.dataset.memoryId = memory.id;
 
     if (memory.kind === "conversation") {
@@ -221,6 +224,12 @@ function renderMemories() {
       seed.className = "seed-badge";
       seed.textContent = "기본 샘플";
       card.append(type, content, tags, seed);
+    } else if (memory.is_imported) {
+      const imported = document.createElement("span");
+      imported.className = "seed-badge import-badge";
+      imported.textContent = "가져오기";
+      imported.title = "Processing 작업의 … 메뉴에서 관련 메모리와 함께 삭제할 수 있습니다.";
+      card.append(type, content, tags, imported);
     } else {
       const remove = document.createElement("button");
       remove.className = "delete-memory";
@@ -319,7 +328,7 @@ async function clearSessionMemories() {
   try {
     const result = await api("/demo/api/memories", { method: "DELETE" });
     await loadMemories();
-    showToast(`사용자 기억 ${result.cleared}개를 비웠습니다. 기본 샘플은 유지됩니다.`);
+    showToast(`사용자 기억 ${result.cleared}개를 비웠습니다. 기본 샘플과 가져온 데이터는 유지됩니다.`);
   } catch (error) {
     showToast(error.message, "error");
     elements.clearSessionMemories.disabled = false;
@@ -744,10 +753,9 @@ function setImportStatus(status, title, detail) {
 
 function setImportBusy(busy) {
   state.importBusy = busy;
-  const jobActive = Boolean(state.importJobId);
-  elements.analyzeImportSource.disabled = busy || jobActive;
-  elements.runImportPreview.disabled = busy || jobActive || !state.importPreparationId;
-  elements.processImport.disabled = busy || jobActive || !state.importPreviewFresh || !state.importProcessingAllowed;
+  elements.analyzeImportSource.disabled = busy;
+  elements.runImportPreview.disabled = busy || !state.importPreparationId;
+  elements.processImport.disabled = busy || !state.importPreviewFresh || !state.importProcessingAllowed;
   elements.closeImportStudio.disabled = busy;
 }
 
@@ -894,81 +902,166 @@ async function runImportPreview() {
   }
 }
 
-function setImportJobIndicator(job = null) {
-  const active = job && (job.status === "QUEUED" || job.status === "RUNNING");
-  elements.openImportStudio.classList.toggle("is-processing", Boolean(active));
-  const label = active
-    ? `대화 데이터 처리 중 ${Number(job.progress || 0)}%`
+function setImportJobIndicator(jobs = []) {
+  const activeJobs = jobs.filter((job) => ["QUEUED", "RUNNING", "PAUSED"].includes(job.status));
+  const active = activeJobs.some((job) => job.status !== "PAUSED");
+  elements.openImportStudio.classList.toggle("is-processing", active);
+  const label = activeJobs.length
+    ? `대화 데이터 작업 ${activeJobs.length}개 진행 중`
     : "대화 데이터 가져오기";
   elements.openImportStudio.setAttribute("aria-label", label);
   elements.openImportStudio.setAttribute("title", label);
 }
 
-function renderImportJob(job) {
-  setImportJobIndicator(job);
-  if (job.status === "QUEUED" || job.status === "RUNNING") {
-    const sessionProgress = job.total_sessions
-      ? ` · ${job.completed_sessions}/${job.total_sessions} sessions`
-      : "";
-    const memoryProgress = job.created_memories
-      ? ` · 메모리 ${job.created_memories}개 반영`
-      : "";
-    setImportStatus(
-      "busy",
-      job.stage || "백그라운드 Processing 중",
-      `${Number(job.progress || 0)}%${sessionProgress}${memoryProgress} · 팝업을 닫아도 계속 진행됩니다.`,
-    );
-    return;
-  }
-  if (job.status === "FAILED") {
-    setImportStatus("error", "Processing 실패", job.error || "백그라운드 작업이 실패했습니다.");
-    return;
-  }
-  const result = job.result || {};
-  setImportStatus(
-    "complete",
-    `대화 메모리 ${result.created || 0}개를 저장했습니다`,
-    `${result.sessions || 0} sessions · ${result.turns || 0} turns · duplicate ${result.duplicates || 0}`,
-  );
+const importJobStatusLabels = {
+  QUEUED: "대기",
+  RUNNING: "처리 중",
+  PAUSED: "일시정지",
+  COMPLETED: "완료",
+  FAILED: "실패",
+  CANCELLED: "삭제 중",
+  INTERRUPTED: "중단됨",
+};
+
+function importJobCountText(job) {
+  const counts = job.memory_counts || {};
+  const parts = [
+    ["대화", counts.conversation],
+    ["사실", counts.fact],
+    ["선호", counts.preference],
+    ["경험", counts.episode],
+    ["문화", counts.culture],
+  ].filter(([, count]) => Number(count || 0) > 0);
+  return parts.length ? parts.map(([label, count]) => `${label} ${count}`).join(" · ") : "메모리 분석 대기";
 }
 
-async function pollImportJob() {
-  if (!state.importJobId) return;
+function closeImportJobMenus(except = null) {
+  for (const card of elements.importJobList.querySelectorAll(".import-job-card.menu-open")) {
+    if (card !== except) card.classList.remove("menu-open");
+  }
+}
+
+function renderImportJobs() {
+  elements.importJobList.replaceChildren();
+  elements.importJobQueue.hidden = state.importJobs.length === 0;
+  elements.importJobCount.textContent = `${state.importJobs.length}`;
+  setImportJobIndicator(state.importJobs);
+  for (const job of state.importJobs) {
+    const card = document.createElement("article");
+    card.className = `import-job-card status-${String(job.status || "").toLowerCase()}`;
+    card.dataset.jobId = job.job_id;
+
+    const summary = document.createElement("div");
+    summary.className = "import-job-summary";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "import-job-title";
+    const title = document.createElement("strong");
+    title.textContent = job.source_label || "대화 데이터";
+    const status = document.createElement("span");
+    status.className = "import-job-status";
+    status.textContent = importJobStatusLabels[job.status] || job.status;
+    titleWrap.append(title, status);
+
+    const more = document.createElement("button");
+    more.className = "import-job-more";
+    more.type = "button";
+    more.dataset.jobMenu = job.job_id;
+    more.setAttribute("aria-label", `${title.textContent} 작업 메뉴`);
+    more.textContent = "…";
+    summary.append(titleWrap, more);
+
+    const stage = document.createElement("div");
+    stage.className = "import-job-stage";
+    stage.textContent = job.error || job.stage || "대기 중";
+    const progress = document.createElement("div");
+    progress.className = "import-job-progress";
+    const bar = document.createElement("span");
+    bar.style.width = `${Math.max(0, Math.min(100, Number(job.progress || 0)))}%`;
+    progress.append(bar);
+    const meta = document.createElement("div");
+    meta.className = "import-job-meta";
+    const sessions = job.total_sessions
+      ? `${job.completed_sessions}/${job.total_sessions} sessions`
+      : `${Number(job.progress || 0)}%`;
+    meta.textContent = `${sessions} · ${importJobCountText(job)}`;
+
+    const menu = document.createElement("div");
+    menu.className = "import-job-menu";
+    if (["QUEUED", "RUNNING"].includes(job.status)) {
+      const pause = document.createElement("button");
+      pause.type = "button";
+      pause.dataset.jobAction = "pause";
+      pause.textContent = "일시정지";
+      menu.append(pause);
+    }
+    if (job.status === "PAUSED") {
+      const resume = document.createElement("button");
+      resume.type = "button";
+      resume.dataset.jobAction = "resume";
+      resume.textContent = "재개";
+      menu.append(resume);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.dataset.jobAction = "delete";
+    remove.textContent = "삭제";
+    menu.append(remove);
+    card.append(summary, stage, progress, meta, menu);
+    elements.importJobList.append(card);
+  }
+}
+
+async function loadImportJobs({ announce = true } = {}) {
+  const previous = new Map(state.importJobs.map((job) => [job.job_id, job.status]));
+  const previousMemorySnapshot = state.importJobs
+    .map((job) => `${job.job_id}:${job.created_memories}`)
+    .join("|");
+  const previousCultureSnapshot = state.importJobs
+    .map((job) => `${job.job_id}:${job.created_cultural_memories}`)
+    .join("|");
+  const payload = await api("/demo/api/imports/jobs");
+  const jobs = payload.items || [];
+  const nextMemorySnapshot = jobs
+    .map((job) => `${job.job_id}:${job.created_memories}`)
+    .join("|");
+  const nextCultureSnapshot = jobs
+    .map((job) => `${job.job_id}:${job.created_cultural_memories}`)
+    .join("|");
+  state.importJobs = jobs;
+  renderImportJobs();
+
+  const refreshes = [];
+  if (state.importJobsInitialized && nextMemorySnapshot !== previousMemorySnapshot) {
+    refreshes.push(loadMemories());
+  }
+  if (state.importJobsInitialized && nextCultureSnapshot !== previousCultureSnapshot) {
+    refreshes.push(loadCulturalMemory());
+  }
+  if (refreshes.length) await Promise.all(refreshes);
+  if (announce && state.importJobsInitialized) {
+    for (const job of jobs) {
+      const oldStatus = previous.get(job.job_id);
+      if (oldStatus && oldStatus !== "COMPLETED" && job.status === "COMPLETED") {
+        showToast(`${job.source_label || "대화 데이터"} Processing이 완료되었습니다.`);
+      }
+      if (oldStatus && oldStatus !== "FAILED" && job.status === "FAILED") {
+        showToast(job.error || `${job.source_label || "대화 데이터"} Processing이 실패했습니다.`, "error");
+      }
+    }
+  }
+  state.importJobsInitialized = true;
+  return jobs;
+}
+
+async function pollImportJobs() {
   window.clearTimeout(state.importJobPollTimer);
   try {
-    const job = await api(`/demo/api/imports/jobs/${encodeURIComponent(state.importJobId)}`);
-    renderImportJob(job);
-    const createdMemories = Number(job.created_memories || 0);
-    if (createdMemories > state.importRenderedMemories) {
-      await loadMemories();
-      state.importRenderedMemories = createdMemories;
-    }
-    if (job.status === "QUEUED" || job.status === "RUNNING") {
-      state.importJobPollTimer = window.setTimeout(pollImportJob, 1000);
-      return;
-    }
-
-    const completedJobId = state.importJobId;
-    state.importJobId = null;
-    state.importRenderedMemories = 0;
-    sessionStorage.removeItem("mnemomeImportJobId");
-    setImportJobIndicator(null);
-    setImportBusy(false);
-    if (job.status === "COMPLETED") {
-      await loadMemories();
-      showSidebarView("memory");
-      showToast(`백그라운드 가져오기가 완료되었습니다. 대화 메모리 ${job.result?.created || 0}개를 저장했습니다.`);
-    } else {
-      await loadMemories();
-      showToast(job.error || `Import job ${completedJobId}가 실패했습니다.`, "error");
+    const jobs = await loadImportJobs();
+    if (jobs.some((job) => ["QUEUED", "RUNNING"].includes(job.status))) {
+      state.importJobPollTimer = window.setTimeout(pollImportJobs, 1000);
     }
   } catch (error) {
-    state.importJobId = null;
-    state.importRenderedMemories = 0;
-    sessionStorage.removeItem("mnemomeImportJobId");
-    setImportJobIndicator(null);
-    setImportBusy(false);
-    setImportStatus("error", "Processing 상태 확인 실패", error.message);
     showToast(error.message, "error");
   }
 }
@@ -982,17 +1075,46 @@ async function processImport() {
       method: "POST",
       body: JSON.stringify({ code: elements.importCode.value }),
     });
-    state.importJobId = job.job_id;
-    state.importRenderedMemories = 0;
-    sessionStorage.setItem("mnemomeImportJobId", job.job_id);
     state.importPreviewFresh = false;
     setImportBusy(false);
-    renderImportJob(job);
-    showToast("백그라운드 Processing을 시작했습니다. 팝업을 닫아도 계속 진행됩니다.");
-    pollImportJob();
+    elements.importDialog.close();
+    resetImportPreparation();
+    await loadImportJobs({ announce: false });
+    showToast(`${job.source_label || "대화 데이터"} Processing을 시작했습니다.`);
+    pollImportJobs();
   } catch (error) {
     setImportBusy(false);
     setImportStatus("error", "Processing 실패", error.message);
+    showToast(error.message, "error");
+  }
+}
+
+async function controlImportJob(jobId, action) {
+  const job = state.importJobs.find((candidate) => candidate.job_id === jobId);
+  if (!job) return;
+  if (action === "delete") {
+    const confirmed = window.confirm(
+      `${job.source_label || "이 데이터"}와 여기서 생성된 대화·사실·선호·경험·문화 메모리를 모두 삭제할까요?`,
+    );
+    if (!confirmed) return;
+  }
+  try {
+    const method = action === "delete" ? "DELETE" : "POST";
+    const path = action === "delete"
+      ? `/demo/api/imports/jobs/${encodeURIComponent(jobId)}`
+      : `/demo/api/imports/jobs/${encodeURIComponent(jobId)}/${action}`;
+    const result = await api(path, { method });
+    closeImportJobMenus();
+    await Promise.all([loadImportJobs({ announce: false }), loadMemories(), loadCulturalMemory()]);
+    if (action === "delete") {
+      showToast(
+        `가져오기 작업과 연결된 메모리 ${result.deleted_memories || 0}개를 삭제했습니다.`,
+      );
+    } else {
+      showToast(action === "pause" ? "Processing을 일시정지했습니다." : "Processing을 재개했습니다.");
+      if (action === "resume") pollImportJobs();
+    }
+  } catch (error) {
     showToast(error.message, "error");
   }
 }
@@ -1054,6 +1176,23 @@ elements.analyzeImportSource.addEventListener("click", prepareImport);
 elements.importCode.addEventListener("input", () => invalidateImportPreview());
 elements.runImportPreview.addEventListener("click", runImportPreview);
 elements.processImport.addEventListener("click", processImport);
+elements.importJobList.addEventListener("click", (event) => {
+  const menuButton = event.target.closest("button[data-job-menu]");
+  if (menuButton) {
+    const card = menuButton.closest(".import-job-card");
+    const willOpen = !card.classList.contains("menu-open");
+    closeImportJobMenus(card);
+    card.classList.toggle("menu-open", willOpen);
+    return;
+  }
+  const actionButton = event.target.closest("button[data-job-action]");
+  if (!actionButton) return;
+  const card = actionButton.closest(".import-job-card");
+  controlImportJob(card.dataset.jobId, actionButton.dataset.jobAction);
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".import-job-card")) closeImportJobMenus();
+});
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
 elements.openNewConversation.addEventListener("click", () => {
@@ -1167,13 +1306,9 @@ async function initialize() {
   if (compactLayoutQuery.matches) {
     setMemoryPanelCollapsed(true);
   }
-  state.importJobId = sessionStorage.getItem("mnemomeImportJobId");
-  if (state.importJobId) {
-    setImportJobIndicator({status: "RUNNING", progress: 0});
-    pollImportJob();
-  }
   try {
-    await Promise.all([loadMemories(), loadCulturalMemory()]);
+    await Promise.all([loadMemories(), loadCulturalMemory(), loadImportJobs({ announce: false })]);
+    pollImportJobs();
   } catch (error) {
     showToast(error.message, "error");
   }
