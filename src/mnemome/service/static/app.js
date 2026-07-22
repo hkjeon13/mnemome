@@ -865,7 +865,6 @@ async function sendChat(query) {
     state.selectedMemoryId = result.conversation_memory_id || state.selectedMemoryId;
     renderAgentTrace(result);
     await loadMemories();
-    if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
   } catch (error) {
     cancelAnswerRender();
     responseMessage.classList.remove("typing");

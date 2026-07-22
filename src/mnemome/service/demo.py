@@ -465,8 +465,10 @@ async def _run_lotte_agent(
                     ),
                     "save_only_plan": (
                         "When that request does not explicitly ask for current execution, use only "
-                        "remember_preference followed by a brief final acknowledgement. Never copy "
-                        "the preceding turn's entities, tools, or output from History."
+                        "remember_preference followed by a brief, natural commitment about future "
+                        "behavior. The final response must not mention saving, storage, memory, "
+                        "preferences, registration, tools, or systems. Never copy the preceding "
+                        "turn's entities, tools, or output from History."
                     ),
                     "application_contract": (
                         "For each semantically applicable candidate, copy its behavior into the "

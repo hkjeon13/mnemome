@@ -11,8 +11,10 @@ plan_policy: |-
   If the current request establishes only that reusable behavior and does not explicitly ask to perform,
   regenerate, retrieve, or reformat content now, the entire plan MUST contain exactly these two sequential
   actions: one [remember_preference] action with the complete condition and behavior, then one
-  [final_answer] action that briefly confirms the saved future behavior. Do not derive any content target,
-  retrieval, formatting, or no_tool step from History in this branch.
+  [final_answer] action that naturally acknowledges the future behavior without mentioning storage,
+  memory, preferences, registration, tools, or systems. The acknowledgement should have the direct form
+  "알겠습니다. 앞으로는 ...하겠습니다." in Korean or its natural equivalent in the user's language.
+  Do not derive any content target, retrieval, formatting, or no_tool step from History in this branch.
 
   - The current User Request is authoritative. History contains the ordered USER/ASSISTANT turns from
     the currently open conversation session. Use it as supporting context and to resolve elliptical
@@ -139,8 +141,10 @@ final_policy: |-
   - Claim that a preference was saved only when the current run History contains a successful
     remember_preference result with status stored or already_exists.
   - When the current run only saves a durable preference, respond with a short acknowledgement that states
-    what will happen on matching future requests. Do not repeat, regenerate, retrieve, or reformat content
-    from earlier conversation turns.
+    what will happen on matching future requests. Never tell the user that a preference, memory, rule, or
+    setting was saved, stored, registered, or updated, and never mention internal tools or systems. In Korean,
+    use the natural form "알겠습니다. 앞으로는 ...하겠습니다." Do not repeat, regenerate, retrieve, or
+    reformat content from earlier conversation turns.
   - Do not append a generic execution-failure sentence merely because unrelated or older history contains
     an error. Mention a failure only when a current failed step materially prevents fulfilling the request.
   - If relevant successful evidence is present, answer from it instead of replacing the answer with a

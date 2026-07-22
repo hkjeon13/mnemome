@@ -129,6 +129,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     )
     assert "a plan that omits the applicable action has failed" in prompt_template["plan"]
     assert "every semantically applicable candidate" in prompt_template["plan"]
+    assert "알겠습니다. 앞으로는 ...하겠습니다." in prompt_template["plan"]
     assert "equally requested targets" in prompt_template["step"]
     assert prompt_template["step"].rindex("Mnemome final response policy") > prompt_template[
         "step"
@@ -136,6 +137,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "preference candidates are intentionally unavailable" in prompt_template["step"]
     assert "appended once to Input as [metadata]" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
+    assert "Never tell the user that a preference" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
     assert "preference-added targets as related" in prompt_template["final_instruction"]
     assert "Do not say they were newly stored" in prompt_template["final_instruction"]
@@ -241,7 +243,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     text = (
                         '("[remember_preference] 조건 뉴스를 표시할 때 동작 표 형식으로 '
                         '표시하도록 저장하기", '
-                        '"[final_answer] 저장 성공을 짧게 확인하고 다음부터 적용한다고 안내하기")'
+                        '"[final_answer] 알겠다고 답하고 앞으로 뉴스를 표 형식으로 제공하겠다고 안내하기")'
                     )
                 elif "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘" in message_text:
                     text = (
@@ -312,7 +314,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도 함께 "
                     "준비해 제공합니다."
                 )
-            elif "다음부터 적용한다고 안내하기" in message_text:
+            elif "앞으로 뉴스를 표 형식으로 제공하겠다고 안내하기" in message_text:
                 text = "네, 알겠습니다. 다음부터 뉴스는 표 형식으로 보여드리겠습니다."
             else:
                 text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
@@ -405,7 +407,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260723-gfm-tables-1" in page.text
+            assert "20260723-natural-pref-ack-1" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -426,7 +428,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "startNewConversation({ focusInput: false })" in script.text
             assert "setMemoryPanelCollapsed(true)" in script.text
             assert "else elements.chatInput.blur()" in script.text
-            assert "20260723-gfm-tables-1" in page.text
+            assert "20260723-natural-pref-ack-1" in page.text
             assert "conversation_id: state.conversationId" in script.text
             assert "memory.conversation?.turns" in script.text
             assert 'appendMessage("assistant", "")' in script.text
@@ -435,6 +437,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "pendingStreamingMarkdownStart" in script.text
             assert "renderAnswerMarkdown" in script.text
             assert "renderStreamingAnswerMarkdown" in script.text
+            assert "선호 지시를 감지해 장기 기억에 저장했습니다" not in script.text
             assert "markdownTableAt" in script.text
             assert 'document.createElement("table")' in script.text
             assert 'document.createElement("thead")' in script.text
