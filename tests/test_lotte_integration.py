@@ -49,9 +49,16 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "For targets A, B, and C" in prompt_template["plan"]
     assert "every target retrieval step must use [search_retrieve]" in prompt_template["plan"]
     assert "Never use company_search, company_analysis" in prompt_template["plan"]
+    assert "read-only memory question" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
     assert "Now, there is the actual task:" in prompt_template["step"]
+    assert "Mnemome MCP step execution policy" in prompt_template["step"]
+    assert "the A step must query A only" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
+    assert "Mnemome final response policy" in prompt_template["final_instruction"]
+    assert "Do not say they were newly stored" in prompt_template["final_instruction"]
+    assert "Mnemome unified memory-aware planning policy" in prompt_template["replan"]
+    assert "Mnemome unified memory-aware planning policy" in prompt_template["plan_repair"]
     assert "NVIDIA" not in overlay_text
     assert "Samsung" not in overlay_text
     assert "SK hynix" not in overlay_text
@@ -76,6 +83,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                         '("[remember_preference] 엔비디아 뉴스 선호 저장하기", '
                         '"[final_answer] 저장 결과 안내하기")'
                     )
+                elif "내가 선호하는 답변 방식은?" in message_text:
+                    text = '("[final_answer] 저장된 선호를 읽어 답변하기",)'
                 elif "내가 지금까지 뉴스 물어본 기업들은?" in message_text:
                     text = '("[final_answer] 저장된 뉴스 기업 기억으로 답변하기",)'
                 elif (
@@ -117,7 +126,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 )
                 return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             self.calls += 1
-            text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
+            if "저장된 선호를 읽어 답변하기" in message_text:
+                text = (
+                    "선호하는 답변 방식은 핵심부터 한국어로 간결하게 설명하고, "
+                    "엔비디아 뉴스 요청 시 삼성전자와 SK하이닉스 뉴스도 함께 보는 것입니다."
+                )
+            else:
+                text = "저장된 선호에 따라 한국어로 간결하게 답변합니다."
             return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
 
         def generate_stream(self, messages, *args, **kwargs):
@@ -330,6 +345,21 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 and '"required":["preference"]' in item
                 for item in preference_messages
             )
+            assert search_calls == []
+
+            preference_read = await client.post(
+                "/demo/api/chat", json={"query": "내가 선호하는 답변 방식은?"}
+            )
+            assert preference_read.status_code == 200, preference_read.text
+            preference_read_payload = preference_read.json()
+            assert preference_read_payload["preference_captured"] is False
+            assert [
+                step["tool"] for step in preference_read_payload["execution_trace"]["steps"]
+            ] == ["final_answer"]
+            assert "핵심부터 한국어로 간결하게" in preference_read_payload["answer"]
+            assert "엔비디아 뉴스 요청 시" in preference_read_payload["answer"]
+            assert "저장되었습니다" not in preference_read_payload["answer"]
+            assert "실행 중 문제" not in preference_read_payload["answer"]
             assert search_calls == []
 
             follow_up_message_start = len(seen_messages)

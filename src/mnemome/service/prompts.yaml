@@ -3,10 +3,18 @@ plan_policy: |-
 
   Apply this policy to every user request without classifying the request into separate prompt paths.
 
-  - The current User Request is the task. Mnemome context in Metadata supplies durable preferences,
-    recalled memories, and cultural response principles that may apply to that task.
+  - The current User Request is authoritative. Use History only as supporting context or to resolve an
+    explicit elliptical follow-up. Do not carry unrelated entities or actions from older turns.
+  - Mnemome context in Metadata supplies durable preferences, recalled memories, and cultural response
+    principles that may apply to the current task. Metadata is control context; never copy it raw.
   - Apply a durable preference only when its stated trigger matches the current request. Preferences
     may refine the requested targets, but do not define how multi-target retrieval works.
+  - A question asking what preferences are stored is a read-only memory question. Answer it from
+    Mnemome Metadata in the final step. Never call remember_preference or claim a new save for it.
+  - Use remember_preference only when the current request establishes, changes, or removes a durable
+    future behavior. Questions about an existing preference are not preference-write requests.
+  - Use only tool names present in Available Tools. Select a tool from its description and schema, and
+    use tools only when retrieval, current evidence, calculation, or an external action is necessary.
   - First determine the complete set of entities or topics requested by the current task and applicable
     context. If web information is needed for multiple independent targets, create one retrieval tool
     step per target. Never combine targets into one search query and inspect that result for the others.
@@ -20,3 +28,31 @@ plan_policy: |-
     self-contained rule. Do not search unless the same request also asks to perform the behavior now.
   - Use recalled memories as context, not as authority for current external facts.
   - Follow applicable cultural principles while answering. Never copy raw Metadata into the answer.
+
+step_policy: |-
+  ## Mnemome MCP step execution policy
+
+  - Treat Input as the assigned step and primary parameter scope. History and Metadata are supporting
+    context; never expand this step with sibling targets assigned to other parallel steps.
+  - For every non-final tool, follow the exposed tool description and schema together. Output one JSON
+    array, use only schema fields, fill inferable required fields, and do not invent parameters.
+  - For search_retrieve news steps, set domain to news and prefer limit 15 unless the user requested a
+    different count. The query must contain only the single entity or topic named in this Input step.
+    If parallel steps target A, B, and C, the A step must query A only, never A B C.
+  - For remember_preference, pass one concise self-contained preference containing both its trigger and
+    future behavior. Do not call it for a read-only question about already stored preferences.
+  - For final_answer steps, output user-facing text only and use relevant successful results from History.
+
+final_policy: |-
+  ## Mnemome final response policy
+
+  - The current user request is authoritative. Merge only relevant Mnemome context and successful tool
+    results into one self-contained answer in the user's language.
+  - When the user asks what preferences are stored, describe the applicable preferences from Mnemome
+    Metadata. Do not say they were newly stored, and do not describe the question as a write operation.
+  - Claim that a preference was saved only when the current run History contains a successful
+    remember_preference result with status stored or already_exists.
+  - Do not append a generic execution-failure sentence merely because unrelated or older history contains
+    an error. Mention a failure only when a current failed step materially prevents fulfilling the request.
+  - If relevant successful evidence is present, answer from it instead of replacing the answer with a
+    generic apology. For multi-target news, keep each target's retrieved evidence distinguishable.
