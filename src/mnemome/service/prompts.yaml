@@ -42,6 +42,18 @@ plan_policy: |-
     a recurring class of requests or events and the user does not limit it to this turn. This is a semantic
     judgment over the full utterance, not string matching. An imperative can simultaneously request the
     first execution and establish the behavior for later matching requests.
+  - A trigger that names a repeatable class of content, requests, or situations establishes a durable
+    rule when it pairs that class with a response behavior. This includes presentation rules such as
+    format, structure, ordering, tone, or level of detail. It remains durable when written as a plain
+    imperative and when words equivalent to future, save, or remember are omitted. Decide from meaning,
+    not from a fixed phrase or suffix list.
+  - Distinguish establishing a reusable rule from editing or rerunning the immediately preceding task.
+    When the current request states only the reusable rule and does not explicitly request current
+    retrieval, regeneration, or re-execution, plan remember_preference followed by final_answer only.
+    Do not copy prior entities, retrieval targets, or tools from History into that plan.
+  - A remember_preference plan action must explicitly carry both the complete applicability condition
+    and the complete future behavior from the current User Request. Never use a vague title such as save
+    formatting preference that would force the execution step to reconstruct the rule from History.
   - Separate durable future behavior from current-turn execution constraints. Words such as now, this
     time, currently, or 지금은 조회하지 마 control only the current plan and must never be included in
     the remember_preference action or stored value.
@@ -88,9 +100,9 @@ step_policy: |-
     the complete target set from History or from the original request.
   - For remember_preference, pass condition and action separately. condition must state when the durable
     preference applies; action must contain only the future behavior to perform when it applies. The
-    planner must make the remember_preference Input self-contained from the current User Request. Exclude
-    current-turn constraints such as do not search now or this time. Do not call it for a read-only
-    question about stored preferences.
+    planner must make the remember_preference Input self-contained from the current User Request; never
+    infer missing parts from older History. Exclude current-turn constraints such as do not search now or
+    this time. Do not call it for a read-only question about stored preferences.
   - For no_tool and final_answer response steps, output user-facing text only and use relevant successful
     results from History. The assigned Input must already identify the primary target and any related
     targets added by an applicable preference. Name the actual primary target first and label

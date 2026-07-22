@@ -110,6 +110,11 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "A condition about one company" in prompt_template["plan"]
     assert "never merge existing stored preferences" in prompt_template["plan"]
     assert "must never be included" in prompt_template["plan"]
+    assert "repeatable class of content, requests, or situations" in prompt_template["plan"]
+    assert "presentation rules such as" in prompt_template["plan"]
+    assert "does not explicitly request current" in prompt_template["plan"]
+    assert "Do not copy prior entities" in prompt_template["plan"]
+    assert "complete applicability condition" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
     assert "**Metadata:** {{metadata}}" not in prompt_template["plan"]
     assert "**Memory Context:** {{metadata.memory" in prompt_template["plan"]
@@ -230,7 +235,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             message_text = str(messages)
             seen_messages.append(message_text)
             if "Now, there is the actual planning task:" in message_text:
-                if "이 규칙을 선호로 저장해줘" in message_text:
+                if "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘" in message_text:
+                    text = (
+                        '("[remember_preference] 조건 뉴스 기사를 표시할 때 동작 각 기사를 '
+                        '항목 형식으로 표시하도록 저장하기", '
+                        '"[final_answer] 저장 결과 안내하기")'
+                    )
+                elif "이 규칙을 선호로 저장해줘" in message_text:
                     text = (
                         '("[remember_preference] 엔비디아 뉴스 선호 저장하기", '
                         '"[final_answer] 저장 결과 안내하기")'
@@ -253,15 +264,17 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                     text = '("[final_answer] 저장된 장기 기억으로 한국어 답변하기",)'
                 return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             if "Tool: remember_preference" in message_text:
-                text = json.dumps(
-                    [
-                        {
-                            "condition": "엔비디아 뉴스를 요청할 때",
-                            "action": "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다.",
-                        }
-                    ],
-                    ensure_ascii=False,
-                )
+                if "조건 뉴스 기사를 표시할 때" in message_text:
+                    params = {
+                        "condition": "뉴스 기사를 표시할 때",
+                        "action": "각 기사를 항목 형식으로 표시한다.",
+                    }
+                else:
+                    params = {
+                        "condition": "엔비디아 뉴스를 요청할 때",
+                        "action": "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다.",
+                    }
+                text = json.dumps([params], ensure_ascii=False)
                 return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             if "Tool: search_retrieve" in message_text:
                 if "SK하이닉스 뉴스 조회하기" in message_text:
@@ -581,7 +594,8 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert any(
                 "현재 요청에만 한정하지 않은 조건부·반복 행동" in item
-                and "저장과 실행을 모두 계획합니다" in item
+                and "저장과 실행을 모두 계획하고" in item
+                and "직전 작업을 임의로 다시 실행하지 않습니다" in item
                 for item in preference_messages
             )
             assert any(
@@ -698,3 +712,18 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             isolated_memories = await isolated_client.get("/demo/api/memories")
             assert isolated_status.json()["memory_count"] == 3
             assert len(isolated_memories.json()["items"]) == 3
+
+            implicit_preference = await isolated_client.post(
+                "/demo/api/chat",
+                json={"query": "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘."},
+            )
+            assert implicit_preference.status_code == 200, implicit_preference.text
+            assert implicit_preference.json()["preference_captured"] is True
+            assert len(search_calls) == 3
+            implicit_memories = await isolated_client.get("/demo/api/memories")
+            assert any(
+                item["kind"] == "preference"
+                and item["metadata"].get("preference_condition") == "뉴스 기사를 표시할 때"
+                and item["metadata"].get("preference_action") == "각 기사를 항목 형식으로 표시한다."
+                for item in implicit_memories.json()["items"]
+            )
