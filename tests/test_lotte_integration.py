@@ -54,6 +54,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "Now, there is the actual task:" in prompt_template["step"]
     assert "Mnemome MCP step execution policy" in prompt_template["step"]
     assert "the A step must query A only" in prompt_template["step"]
+    assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
     assert "Do not say they were newly stored" in prompt_template["final_instruction"]
@@ -367,6 +368,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert follow_up.status_code == 200, follow_up.text
             follow_up_messages = seen_messages[follow_up_message_start:]
             assert any(normalized_preference in item for item in follow_up_messages)
+            search_step_messages = [
+                item for item in follow_up_messages if "Tool: search_retrieve" in item
+            ]
+            assert len(search_step_messages) == 3
+            assert all(normalized_preference not in item for item in search_step_messages)
             assert any("one retrieval tool" in item for item in follow_up_messages)
             assert any("Do not plan search A B C" in item for item in follow_up_messages)
             assert {call["query"] for call in search_calls} == {

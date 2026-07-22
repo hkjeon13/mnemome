@@ -24,15 +24,31 @@ def build_demo_prompt_template() -> dict[str, Any]:
     step_template = str(prompt_template.get("step") or "")
     actual_task_marker = "Now, there is the actual task:"
     step_marker = f"---\n{actual_task_marker}"
+    step_metadata_marker = "Metadata: {{metadata}}"
     if (
         not all(policies.values())
         or PLAN_PROMPT_SPLIT_MARKER not in plan_template
         or step_marker not in step_template
+        or step_metadata_marker not in step_template
     ):
         raise RuntimeError("Mnemome prompt overlay or Lotte Agent plan marker is missing")
     prompt_template["plan"] = plan_template.replace(
         PLAN_PROMPT_SPLIT_MARKER,
         f"{policies['plan_policy']}\n\n---\n\n{PLAN_PROMPT_SPLIT_MARKER}",
+        1,
+    )
+    step_template = step_template.replace(
+        step_metadata_marker,
+        """{% if tool == 'no_tool' or tool.startswith('final_answer') %}
+Metadata: {{metadata}}
+{% else %}
+Runtime Metadata:
+- current_date={{metadata.current_date | default('')}}
+- current_datetime={{metadata.current_datetime | default('')}}
+- timezone={{metadata.timezone | default('')}}
+Mnemome preferences are intentionally unavailable in tool execution steps.
+Use only Input for the target scope.
+{% endif %}""",
         1,
     )
     prompt_template["step"] = step_template.replace(

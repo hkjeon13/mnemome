@@ -352,11 +352,16 @@ async def _run_lotte_agent(
         "language": "ko",
         "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
         "mnemome": {
-            "preferences": [entry.content for entry in preferences],
-            "recalled_memories": [
-                {"kind": entry.kind.value, "content": entry.content} for entry in recalled
-            ],
             "cultural_principles": cultural_context,
+        },
+        "plan_prerequisites": {
+            "mnemome": {
+                "preferences": [entry.content for entry in preferences],
+                "recalled_memories": [
+                    {"kind": entry.kind.value, "content": entry.content}
+                    for entry in recalled
+                ],
+            }
         },
     }
 
