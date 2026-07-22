@@ -51,6 +51,7 @@ const elements = {
 };
 
 const initialGuideMessage = elements.conversation.querySelector(".assistant-message");
+const compactLayoutQuery = window.matchMedia("(max-width: 56.25rem)");
 
 const kindLabels = {
   fact: "FACT · 사실",
@@ -550,7 +551,7 @@ function traceEmpty(message) {
   return empty;
 }
 
-function startNewConversation() {
+function startNewConversation({ focusInput = true } = {}) {
   stopChat();
   clearRenderedConversation();
   initialGuideMessage.hidden = false;
@@ -567,7 +568,8 @@ function startNewConversation() {
   elements.traceTab.hidden = true;
   showSidebarView("memory");
   showToast("새 대화를 시작했습니다. 저장된 메모리는 유지됩니다.");
-  elements.chatInput.focus({ preventScroll: true });
+  if (focusInput) elements.chatInput.focus({ preventScroll: true });
+  else elements.chatInput.blur();
 }
 
 async function sendChat(query) {
@@ -695,7 +697,14 @@ elements.filterTabs.addEventListener("click", (event) => {
 });
 
 elements.openMemoryForm.addEventListener("click", () => elements.memoryDialog.showModal());
-elements.openNewConversation.addEventListener("click", () => elements.newConversationDialog.showModal());
+elements.openNewConversation.addEventListener("click", () => {
+  if (compactLayoutQuery.matches) {
+    startNewConversation({ focusInput: false });
+    setMemoryPanelCollapsed(true);
+    return;
+  }
+  elements.newConversationDialog.showModal();
+});
 elements.newConversationDialog.addEventListener("close", () => {
   if (elements.newConversationDialog.returnValue === "confirm") startNewConversation();
   elements.newConversationDialog.returnValue = "";
@@ -796,7 +805,7 @@ elements.starterPrompts.addEventListener("click", (event) => {
 });
 
 async function initialize() {
-  if (window.matchMedia("(max-width: 56.25rem)").matches) {
+  if (compactLayoutQuery.matches) {
     setMemoryPanelCollapsed(true);
   }
   try {

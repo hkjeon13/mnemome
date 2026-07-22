@@ -299,6 +299,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "event.isComposing" in script.text
             assert 'event === "progress"' in script.text
             assert 'matchMedia("(max-width: 56.25rem)")' in script.text
+            assert "if (compactLayoutQuery.matches)" in script.text
+            assert "startNewConversation({ focusInput: false })" in script.text
+            assert "setMemoryPanelCollapsed(true)" in script.text
+            assert "else elements.chatInput.blur()" in script.text
+            assert "20260722-mobile-new-conversation" in page.text
             assert 'appendMessage("assistant", "")' in script.text
             assert 'setAttribute("aria-label", "실행 계획 생성 중")' in script.text
             assert 'status === "running" ? "진행 중" : "시작 대기 중"' in script.text
