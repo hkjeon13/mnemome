@@ -407,7 +407,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260723-sidebar-right-1" in page.text
+            assert "20260723-hf-row-limit-1" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -428,7 +428,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "startNewConversation({ focusInput: false })" in script.text
             assert "setMemoryPanelCollapsed(true)" in script.text
             assert "else elements.chatInput.blur()" in script.text
-            assert "20260723-sidebar-right-1" in page.text
+            assert "20260723-hf-row-limit-1" in page.text
             assert "conversation_id: state.conversationId" in script.text
             assert "memory.conversation?.turns" in script.text
             assert 'appendMessage("assistant", "")' in script.text

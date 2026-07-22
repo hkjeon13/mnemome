@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260723-sidebar-right-1" />
+    <link rel="stylesheet" href="/static/app.css?v=20260723-hf-row-limit-1" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -284,6 +284,11 @@
             <div><strong id="import-progress-title">Source를 준비해 주세요</strong><small id="import-progress-detail">preview에서는 메모리를 저장하지 않습니다.</small></div>
           </div>
           <div class="import-actions">
+            <label class="import-row-limit-field" for="import-row-limit">
+              <span>처리 row</span>
+              <input id="import-row-limit" type="number" min="1" value="20" inputmode="numeric" disabled />
+              <small>앞에서부터</small>
+            </label>
             <button class="secondary-button" id="run-import-preview" type="button" disabled>Run preview</button>
             <button class="primary-button" id="process-import" type="button" disabled>Processing</button>
           </div>
@@ -369,6 +374,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260723-sidebar-right-1" defer></script>
+    <script src="/static/app.js?v=20260723-hf-row-limit-1" defer></script>
   </body>
 </html>

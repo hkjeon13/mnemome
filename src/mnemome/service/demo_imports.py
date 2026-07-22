@@ -54,6 +54,7 @@ class DemoImportPreviewBody(BaseModel):
 
 class DemoImportProcessBody(BaseModel):
     code: str = Field(min_length=1, max_length=8_000)
+    row_limit: int | None = Field(default=None, ge=1, le=MAX_LOCAL_ROWS)
 
 
 @dataclass(slots=True)
@@ -80,6 +81,7 @@ class _ImportJob:
     stage: str = "대기 중"
     resumable_stage: str = "대기 중"
     progress: int = 0
+    requested_rows: int = 0
     completed_sessions: int = 0
     created_memories: int = 0
     created_cultural_memories: int = 0
@@ -109,6 +111,7 @@ class _ImportJob:
             "status": self.status,
             "stage": self.stage,
             "progress": self.progress,
+            "requested_rows": self.requested_rows,
             "completed_sessions": self.completed_sessions,
             "created_memories": self.created_memories,
             "created_cultural_memories": self.created_cultural_memories,
@@ -724,14 +727,50 @@ class DemoImportStudio:
     async def _hf_first_rows(
         self, source: DemoImportSourceBody
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-        payload = await self._hf_request(source, "first-rows")
-        rows = [item.get("row", {}) for item in payload.get("rows", []) if isinstance(item, dict)]
+        first_rows_payload, size_payload = await asyncio.gather(
+            self._hf_request(source, "first-rows"),
+            self._hf_request(source, "size"),
+        )
+        rows = [
+            item.get("row", {})
+            for item in first_rows_payload.get("rows", [])
+            if isinstance(item, dict)
+        ]
         if not rows:
             raise HTTPException(status_code=422, detail="preview 가능한 row가 없습니다.")
+
+        config = source.config or "default"
+        split = source.split or "train"
+        split_sizes = (size_payload.get("size") or {}).get("splits") or []
+        matching_size = next(
+            (
+                item
+                for item in split_sizes
+                if isinstance(item, dict)
+                and item.get("config") == config
+                and item.get("split") == split
+            ),
+            None,
+        )
+        total_rows = None
+        if matching_size is not None:
+            total_rows = matching_size.get("num_rows")
+            if total_rows is None:
+                total_rows = matching_size.get("estimated_num_rows")
+        if total_rows is None:
+            total_rows = first_rows_payload.get("num_rows_total")
+        if total_rows is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Hugging Face에서 선택한 config/split의 전체 row 수를 "
+                    "아직 확인할 수 없습니다. Dataset Viewer 처리가 끝난 뒤 다시 시도해 주세요."
+                ),
+            )
         return (
             rows,
-            list(payload.get("features", [])),
-            int(payload.get("num_rows_total") or len(rows)),
+            list(first_rows_payload.get("features", [])),
+            int(total_rows),
         )
 
     async def prepare(self, tenant_id: str, body: DemoImportPrepareBody) -> dict[str, Any]:
@@ -779,6 +818,13 @@ class DemoImportStudio:
             raise HTTPException(status_code=404, detail="import preparation을 찾을 수 없습니다.")
         return preparation
 
+    @staticmethod
+    def _max_process_rows(preparation: _Preparation) -> int:
+        source_limit = MAX_HF_ROWS if preparation.source.type == "huggingface" else MAX_LOCAL_ROWS
+        if preparation.profile.get("layout") == "SESSION_PER_ROW":
+            return min(source_limit, MAX_IMPORT_MEMORIES)
+        return source_limit
+
     def _preview_payload(
         self,
         preparation: _Preparation,
@@ -787,10 +833,9 @@ class DemoImportStudio:
         result: dict[str, Any],
     ) -> dict[str, Any]:
         total_rows = preparation.total_rows
+        max_process_rows = self._max_process_rows(preparation)
         processing_allowed = (
-            total_rows
-            <= (MAX_HF_ROWS if preparation.source.type == "huggingface" else MAX_LOCAL_ROWS)
-            and preparation.profile.get("layout") != "REUSED_SESSION_ID_SUSPECTED"
+            total_rows > 0 and preparation.profile.get("layout") != "REUSED_SESSION_ID_SUSPECTED"
         )
         return {
             "preparation_id": preparation.preparation_id,
@@ -800,9 +845,7 @@ class DemoImportStudio:
                 "config": preparation.source.config,
                 "split": preparation.source.split,
                 "total_rows": total_rows,
-                "demo_limit": MAX_HF_ROWS
-                if preparation.source.type == "huggingface"
-                else MAX_LOCAL_ROWS,
+                "max_process_rows": max_process_rows,
             },
             "features": preparation.features,
             "profile": preparation.profile,
@@ -816,8 +859,11 @@ class DemoImportStudio:
             "warnings": [
                 *preparation.profile.get("warnings", []),
                 *(
-                    [f"데모는 최대 {MAX_HF_ROWS:,} rows까지 전체 처리합니다."]
-                    if preparation.source.type == "huggingface" and total_rows > MAX_HF_ROWS
+                    [
+                        f"현재 감지된 구조에서는 전체 중 앞에서 최대 "
+                        f"{max_process_rows:,} rows까지 선택해 처리할 수 있습니다."
+                    ]
+                    if total_rows > max_process_rows
                     else []
                 ),
             ],
@@ -840,24 +886,29 @@ class DemoImportStudio:
         return self._preview_payload(preparation, rows, body.code, result)
 
     async def _all_rows(
-        self, preparation: _Preparation, job: _ImportJob | None = None
+        self,
+        preparation: _Preparation,
+        row_limit: int,
+        job: _ImportJob | None = None,
     ) -> list[dict[str, Any]]:
         if preparation.source.type == "local":
-            return preparation.rows
-        if preparation.total_rows > MAX_HF_ROWS:
+            return preparation.rows[:row_limit]
+        if row_limit > MAX_HF_ROWS:
             raise HTTPException(
                 status_code=422,
-                detail=f"데모는 Hugging Face dataset을 {MAX_HF_ROWS:,} rows까지 처리합니다.",
+                detail=(
+                    f"Hugging Face dataset은 앞에서 {MAX_HF_ROWS:,} rows까지 처리할 수 있습니다."
+                ),
             )
         rows: list[dict[str, Any]] = []
-        for offset in range(0, preparation.total_rows, 100):
+        for offset in range(0, row_limit, 100):
             if job is not None:
                 await self._checkpoint(job)
             payload = await self._hf_request(
                 preparation.source,
                 "rows",
                 offset=offset,
-                length=min(100, preparation.total_rows - offset),
+                length=min(100, row_limit - offset),
             )
             rows.extend(
                 item.get("row", {}) for item in payload.get("rows", []) if isinstance(item, dict)
@@ -885,6 +936,17 @@ class DemoImportStudio:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+        max_process_rows = self._max_process_rows(preparation)
+        row_limit = min(body.row_limit or preparation.total_rows, preparation.total_rows)
+        if row_limit > max_process_rows:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"이 source는 앞에서 최대 {max_process_rows:,} rows까지 처리할 수 있습니다. "
+                    "처리 row 수를 줄여 주세요."
+                ),
+            )
+
         job = _ImportJob(
             job_id=f"mij_{secrets.token_urlsafe(8)}",
             tenant_id=tenant_id,
@@ -892,6 +954,7 @@ class DemoImportStudio:
             source_label=(
                 preparation.source.file_name or preparation.source.repo_id or "대화 데이터"
             )[:300],
+            requested_rows=row_limit,
         )
         async with self._lock:
             self._jobs[job.job_id] = job
@@ -910,7 +973,7 @@ class DemoImportStudio:
                 self._jobs.pop(removable, None)
 
         task = asyncio.create_task(
-            self._run_process(job, preparation, body.code, application),
+            self._run_process(job, preparation, body.code, row_limit, application),
             name=f"demo-import-{job.job_id}",
         )
         self._tasks[job.job_id] = task
@@ -941,6 +1004,7 @@ class DemoImportStudio:
                     "status": "INTERRUPTED",
                     "stage": "서버 재시작 후 복구된 작업",
                     "progress": 0,
+                    "requested_rows": 0,
                     "completed_sessions": 0,
                     "created_memories": 0,
                     "created_cultural_memories": 0,
@@ -1076,6 +1140,7 @@ class DemoImportStudio:
         job: _ImportJob,
         preparation: _Preparation,
         code: str,
+        row_limit: int,
         application: Any,
     ) -> None:
         try:
@@ -1086,7 +1151,7 @@ class DemoImportStudio:
             job.progress = 10
             await asyncio.sleep(0)
             await self._checkpoint(job)
-            result = await self._execute_process(job, preparation, code, application)
+            result = await self._execute_process(job, preparation, code, row_limit, application)
             job.result = result
             job.status = "COMPLETED"
             job.stage = "메모리 반영 완료"
@@ -1112,10 +1177,11 @@ class DemoImportStudio:
         job: _ImportJob,
         preparation: _Preparation,
         code: str,
+        row_limit: int,
         application: Any,
     ) -> dict[str, Any]:
         tenant_id = job.tenant_id
-        rows = await self._all_rows(preparation, job)
+        rows = await self._all_rows(preparation, row_limit, job)
         job.stage = "session 대화로 변환하는 중"
         job.progress = 35
         try:

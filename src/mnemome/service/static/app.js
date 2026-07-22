@@ -37,6 +37,8 @@ const state = {
   importPreparationId: null,
   importPreviewFresh: false,
   importProcessingAllowed: false,
+  importTotalRows: 0,
+  importMaxProcessRows: 0,
   importBusy: false,
   importJobs: [],
   importJobPollTimer: null,
@@ -93,6 +95,7 @@ const elements = {
   importHfSplit: document.querySelector("#import-hf-split"),
   importHfToken: document.querySelector("#import-hf-token"),
   importInstructions: document.querySelector("#import-instructions"),
+  importRowLimit: document.querySelector("#import-row-limit"),
   analyzeImportSource: document.querySelector("#analyze-import-source"),
   importProfile: document.querySelector("#import-profile"),
   importLayout: document.querySelector("#import-layout"),
@@ -909,7 +912,35 @@ function setImportBusy(busy) {
   elements.analyzeImportSource.disabled = busy;
   elements.runImportPreview.disabled = busy || !state.importPreparationId;
   elements.processImport.disabled = busy || !state.importPreviewFresh || !state.importProcessingAllowed;
+  elements.importRowLimit.disabled = busy || !state.importPreparationId;
   elements.closeImportStudio.disabled = busy;
+}
+
+function selectedImportRowLimit() {
+  const value = Number(elements.importRowLimit.value);
+  const maximum = Math.min(state.importTotalRows, state.importMaxProcessRows);
+  if (!Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`처리 row 수는 1~${maximum.toLocaleString("ko-KR")} 사이로 입력해 주세요.`);
+  }
+  return value;
+}
+
+function updateImportRowLimitStatus() {
+  if (!state.importPreparationId || !state.importPreviewFresh) return;
+  try {
+    const rowLimit = selectedImportRowLimit();
+    elements.importRowLimit.setCustomValidity("");
+    elements.processImport.disabled = !state.importProcessingAllowed || state.importBusy;
+    setImportStatus(
+      "ready",
+      "Preview 준비 완료",
+      `전체 ${state.importTotalRows.toLocaleString("ko-KR")} rows 중 앞에서 ${rowLimit.toLocaleString("ko-KR")} rows를 Processing합니다.`,
+    );
+  } catch (error) {
+    elements.importRowLimit.setCustomValidity(error.message);
+    elements.processImport.disabled = true;
+    setImportStatus("error", "처리 row 수를 확인해 주세요", error.message);
+  }
 }
 
 function invalidateImportPreview(message = "code가 변경되었습니다. preview를 다시 실행해 주세요.") {
@@ -937,6 +968,15 @@ function renderImportPayload(payload) {
   const source = payload.source || {};
   const totalRows = Number(source.total_rows || 0);
   const previewRows = Number(stats.input_rows || 0);
+  const maxProcessRows = Number(source.max_process_rows || totalRows);
+  state.importTotalRows = totalRows;
+  state.importMaxProcessRows = maxProcessRows;
+  const allowedRows = Math.max(1, Math.min(totalRows, maxProcessRows));
+  const currentRowLimit = Number(elements.importRowLimit.value);
+  elements.importRowLimit.max = String(allowedRows);
+  if (!Number.isInteger(currentRowLimit) || currentRowLimit < 1 || currentRowLimit > allowedRows) {
+    elements.importRowLimit.value = String(Math.min(20, allowedRows));
+  }
 
   elements.importProfile.hidden = false;
   elements.importLayout.textContent = importLayoutLabels[profile.layout] || profile.layout || "—";
@@ -963,6 +1003,7 @@ function renderImportPayload(payload) {
       : (payload.warnings || ["전체 처리 조건을 충족하지 못했습니다."]).at(-1),
   );
   setImportBusy(false);
+  if (canProcess) updateImportRowLimitStatus();
 }
 
 async function parseImportFile(file) {
@@ -989,10 +1030,14 @@ function resetImportPreparation() {
   state.importPreparationId = null;
   state.importPreviewFresh = false;
   state.importProcessingAllowed = false;
+  state.importTotalRows = 0;
+  state.importMaxProcessRows = 0;
   elements.importProfile.hidden = true;
   elements.importCode.disabled = true;
   elements.runImportPreview.disabled = true;
   elements.processImport.disabled = true;
+  elements.importRowLimit.disabled = true;
+  elements.importRowLimit.setCustomValidity("");
   renderImportWarnings([]);
   setImportStatus("", "Source를 분석해 주세요", "preview에서는 메모리를 저장하지 않습니다.");
 }
@@ -1136,7 +1181,11 @@ function renderImportJobs() {
     const sessions = job.total_sessions
       ? `${job.completed_sessions}/${job.total_sessions} sessions`
       : `${Number(job.progress || 0)}%`;
-    meta.textContent = `${sessions} · ${importJobCountText(job)}`;
+    const requestedRows = Number(job.requested_rows || 0);
+    const requested = requestedRows
+      ? `앞 ${requestedRows.toLocaleString("ko-KR")} rows`
+      : "처리 범위 복구 중";
+    meta.textContent = `${requested} · ${sessions} · ${importJobCountText(job)}`;
 
     const menu = document.createElement("div");
     menu.className = "import-job-menu";
@@ -1221,12 +1270,20 @@ async function pollImportJobs() {
 
 async function processImport() {
   if (!state.importPreparationId || !state.importPreviewFresh) return;
+  let rowLimit;
+  try {
+    rowLimit = selectedImportRowLimit();
+  } catch (error) {
+    updateImportRowLimitStatus();
+    elements.importRowLimit.reportValidity();
+    return;
+  }
   setImportBusy(true);
-  setImportStatus("busy", "백그라운드 작업을 시작하는 중", "작업이 시작되면 팝업을 닫을 수 있습니다.");
+  setImportStatus("busy", "백그라운드 작업을 시작하는 중", `앞에서 ${rowLimit.toLocaleString("ko-KR")} rows를 처리합니다.`);
   try {
     const job = await api(`/demo/api/imports/${encodeURIComponent(state.importPreparationId)}/process`, {
       method: "POST",
-      body: JSON.stringify({ code: elements.importCode.value }),
+      body: JSON.stringify({ code: elements.importCode.value, row_limit: rowLimit }),
     });
     state.importPreviewFresh = false;
     setImportBusy(false);
@@ -1327,6 +1384,7 @@ elements.importFile.addEventListener("change", async () => {
 });
 elements.analyzeImportSource.addEventListener("click", prepareImport);
 elements.importCode.addEventListener("input", () => invalidateImportPreview());
+elements.importRowLimit.addEventListener("input", updateImportRowLimitStatus);
 elements.runImportPreview.addEventListener("click", runImportPreview);
 elements.processImport.addEventListener("click", processImport);
 elements.importJobList.addEventListener("click", (event) => {

@@ -87,6 +87,102 @@ def test_transform_supports_one_session_per_row() -> None:
 
 
 @pytest.mark.asyncio
+async def test_huggingface_uses_split_size_and_fetches_only_requested_head_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    studio = DemoImportStudio()
+    requested_pages: list[tuple[int, int]] = []
+    sample_rows = [
+        {
+            "sessionId": f"sample-{index}",
+            "conversation": [
+                {"content": f"질문 {index}", "role": "user", "timestamp": ""},
+                {"content": f"답변 {index}", "role": "assistant", "timestamp": ""},
+            ],
+        }
+        for index in range(14)
+    ]
+
+    async def fake_hf_request(source: object, endpoint: str, **params: object) -> dict[str, object]:
+        if endpoint == "first-rows":
+            return {
+                "features": [
+                    {"name": "sessionId", "type": {"dtype": "string"}},
+                    {"name": "conversation", "type": {"list": []}},
+                ],
+                "rows": [{"row": row} for row in sample_rows],
+                "truncated": True,
+            }
+        if endpoint == "size":
+            return {
+                "size": {
+                    "splits": [
+                        {
+                            "config": "default",
+                            "split": "train",
+                            "num_rows": 342_103,
+                        }
+                    ]
+                }
+            }
+        if endpoint == "rows":
+            offset = int(params["offset"])
+            length = int(params["length"])
+            requested_pages.append((offset, length))
+            return {
+                "rows": [
+                    {
+                        "row": {
+                            "sessionId": f"full-{index}",
+                            "conversation": [
+                                {"content": "질문", "role": "user", "timestamp": ""},
+                                {"content": "답변", "role": "assistant", "timestamp": ""},
+                            ],
+                        }
+                    }
+                    for index in range(offset, offset + length)
+                ]
+            }
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(studio, "_hf_request", fake_hf_request)
+    prepared = await studio.prepare(
+        "tenant",
+        DemoImportPrepareBody.model_validate(
+            {
+                "source": {
+                    "type": "huggingface",
+                    "repo_id": "psyche/chatgpt-log-processed",
+                    "config": "default",
+                    "split": "train",
+                    "token": "test-token",
+                }
+            }
+        ),
+    )
+
+    assert prepared["source"]["total_rows"] == 342_103
+    assert prepared["source"]["max_process_rows"] == 40
+    assert prepared["processing_allowed"] is True
+    assert prepared["stats"]["input_rows"] == 5
+
+    preparation = studio._get("tenant", prepared["preparation_id"])
+    head_rows = await studio._all_rows(preparation, 3)
+
+    assert len(head_rows) == 3
+    assert requested_pages == [(0, 3)]
+
+    with pytest.raises(HTTPException, match="최대 40 rows"):
+        await studio.process(
+            "tenant",
+            prepared["preparation_id"],
+            DemoImportProcessBody(code=prepared["code"], row_limit=41),
+            application=object(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_reused_session_id_is_detected_and_processing_is_blocked() -> None:
     rows = [
         {"session_id": "reused", "content": "첫 세션", "role": "user", "turn_index": 1},
