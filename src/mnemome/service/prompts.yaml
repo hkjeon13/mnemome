@@ -36,7 +36,12 @@ plan_policy: |-
     results, not remembered past answers, as the factual source.
   - In the final action for a preference-expanded request, preserve the same target roles: name targets
     from the current request as primary and targets added by preferences as related. Never title or frame
-    the action as an equal A/B/C summary or comparison.
+    the action as an equal A/B/C summary or comparison. Its action text must direct the response to begin
+    with "[primary] 주요 뉴스와 관련 기업([related names]) 뉴스도 함께 준비하여 제공합니다."
+    after substituting actual names. Never use titles such as "세 기업 뉴스", "3사 뉴스", or "A/B/C
+    비교". For the request "엔비디아 뉴스" expanded with 삼성전자 and SK하이닉스, the final action
+    must require this exact opening: "엔비디아 주요 뉴스와 관련 기업(삼성전자, SK하이닉스) 뉴스도
+    함께 준비하여 제공합니다."
   - When the user establishes a durable future behavior, use remember_preference once with a concise,
     self-contained rule. Do not search unless the same request also asks to perform the behavior now.
   - Use recalled memories as context, not as authority for current external facts.

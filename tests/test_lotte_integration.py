@@ -47,6 +47,7 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "STRICT PLAN GENERATION RULES" in prompt_template["plan"]
     assert "Mnemome unified memory-aware planning policy" in prompt_template["plan"]
     assert "For targets A, B, and C" in prompt_template["plan"]
+    assert 'Never use titles such as "세 기업 뉴스"' in prompt_template["plan"]
     assert "every target retrieval step must use [search_retrieve]" in prompt_template["plan"]
     assert "Never use company_search, company_analysis" in prompt_template["plan"]
     assert "read-only memory question" in prompt_template["plan"]
