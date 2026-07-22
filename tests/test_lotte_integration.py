@@ -427,6 +427,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 for item in preference_messages
             )
             assert any(
+                "현재 요청에만 한정하지 않은 조건부·반복 행동" in item
+                and "저장과 실행을 모두 계획합니다" in item
+                for item in preference_messages
+            )
+            assert any(
                 '"condition":{"type":"string"' in item
                 and '"action":{"type":"string"' in item
                 and '"required":["condition","action"]' in item

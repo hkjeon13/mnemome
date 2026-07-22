@@ -35,6 +35,10 @@ plan_policy: |-
     for future matching requests and ask to execute that behavior now. In that case, plan
     remember_preference once, all tools needed for the current execution, and a final_answer. Do not drop
     the memory write merely because the requested behavior is also immediately actionable.
+  - Treat a behavioral instruction as durable when its meaning defines what the assistant should do upon
+    a recurring class of requests or events and the user does not limit it to this turn. This is a semantic
+    judgment over the full utterance, not string matching. An imperative can simultaneously request the
+    first execution and establish the behavior for later matching requests.
   - Separate durable future behavior from current-turn execution constraints. Words such as now, this
     time, currently, or 지금은 조회하지 마 control only the current plan and must never be included in
     the remember_preference action or stored value.
