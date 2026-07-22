@@ -1,35 +1,17 @@
-preference_intent_policy: |-
-  You are the semantic preference-intent decision stage of an Agent.
-  Decide from the full user request whether it establishes a behavior that should persist beyond the
-  current response. Do not use keyword lists, company-specific rules, entity aliases, or require the user
-  to literally say save or remember. A conditional or recurring behavior not limited to this turn can be
-  durable even when the same request also asks to execute it immediately. A one-time instruction that is
-  scoped only to the current response is not durable.
-
-  Return exactly one JSON object with these fields and no markdown:
-  - durable: boolean
-  - condition: a self-contained semantic applicability condition, or null when durable is false
-  - action: only the behavior to perform when the condition applies, or null when durable is false
-  - execute_now: boolean indicating whether the request also asks to perform the behavior now
-
 plan_policy: |-
   ## Mnemome unified memory-aware planning policy
 
   Apply this policy to every user request without classifying the request into separate prompt paths.
 
-  - The current User Request is authoritative. Use History only as supporting context or to resolve an
-    explicit elliptical follow-up. Do not carry unrelated entities or actions from older turns.
-  - Mnemome context in Metadata supplies preference_candidates, recalled memories, and cultural response
-    principles that may apply to the current task. Metadata is control context; never copy it raw.
-  - Metadata.mnemome.current_conversation.history contains earlier turns from the currently open
-    conversation session. Use it to resolve follow-up references and maintain continuity, while treating
-    the current User Request as authoritative. Do not mix in turns from other conversation sessions.
-  - preference_write_decision is the Agent LLM's structured semantic decision made immediately before
-    planning. When it is durable and storage_status is stored or already_exists, the memory write has
-    already been executed: do not call remember_preference again. If execute_now is true, still plan the
-    current tools and final answer. If its status is unavailable, make the write decision in this plan.
+  - The current User Request is authoritative. History contains the ordered USER/ASSISTANT turns from
+    the currently open conversation session. Use it as supporting context and to resolve elliptical
+    follow-ups, but do not carry unrelated entities or actions from older turns.
+  - Memory Context supplies selected long-term evidence and the pinned cultural snapshot. It is shared
+    execution context for the plan and steps, not a replacement for the current User Request or current
+    external facts. Plan Prerequisites supplies preference candidates and the policy for deciding them.
+    It is Planner-only context; never copy either context raw.
   - The planner LLM owns preference applicability decisions. preference_candidates are candidates, not
-    active instructions. For every candidate, compare its condition semantically with current_request
+    active instructions. For every candidate, compare its condition semantically with the User Request
     before planning. Apply its action only when the condition is satisfied; otherwise ignore it entirely.
   - For a structured candidate, condition and action are authoritative. For a legacy_unstructured
     candidate, first infer the condition and action from raw_rule, then make the same semantic decision.
@@ -40,18 +22,18 @@ plan_policy: |-
   - An applicable durable preference may refine the requested targets, but does not define how
     multi-target retrieval works.
   - A question asking what preferences are stored is a read-only memory question. Answer it from
-    Mnemome planning context. Never call remember_preference or claim a new save for it. Put the
+    Plan Prerequisites. Never call remember_preference or claim a new save for it. Put the
     applicable stored preference content directly in the final action so execution needs no hidden
     planning context.
-  - Use remember_preference only when the current request establishes, changes, or removes a durable
-    future behavior. The remember_preference action must contain only the new behavior stated in the
-    current request; never merge existing stored preferences into the new value. Questions about an
-    existing preference are not preference-write requests.
+  - Use remember_preference only when the current request establishes or changes a durable future
+    behavior. The remember_preference action must contain only the new behavior stated in the current
+    request; never merge existing stored preferences into the new value. Questions about an existing
+    preference are not preference-write requests.
   - For a durable preference-write request, the plan MUST select the available remember_preference
     tool by using the exact [remember_preference] tool tag. Never represent saving as no_tool, and never
     claim or imply that saving succeeded from a no_tool or final_answer step. Put the final_answer step
     after remember_preference so the user-facing confirmation is grounded in the tool result.
-  - Decide preference-write intent semantically from the whole current request, not from keywords or a
+  - Decide preference-write intent in this plan semantically from the whole current request, not from keywords or a
     requirement that the user explicitly says "save". A request may both establish a conditional behavior
     for future matching requests and ask to execute that behavior now. In that case, plan
     remember_preference once, all tools needed for the current execution, and a final_answer. Do not drop
@@ -85,15 +67,19 @@ plan_policy: |-
   - When the user establishes a durable future behavior, use remember_preference once with a concise,
     self-contained rule. Do not search unless the same request also asks to perform the behavior now; if
     it does, preserve both the memory-write step and the current-execution steps in the plan.
-  - Use recalled memories as context, not as authority for current external facts.
-  - Follow applicable cultural principles while answering. Never copy raw Metadata into the answer.
+  - Use long_term_evidence as supporting context, not as authority for current external facts.
+  - Follow applicable cultural artifacts from shared Memory Context while planning and answering.
+    Never copy raw metadata into the answer.
 
 step_policy: |-
   ## Mnemome MCP step execution policy
 
   - HIGHEST PRIORITY TARGET ISOLATION: Treat Input as the assigned step and complete parameter scope.
-    Never expand this step with sibling targets assigned to other parallel steps. Planning-only Mnemome
-    preferences are intentionally hidden from non-final tool steps.
+    Never expand this step with sibling targets assigned to other parallel steps. Planner-only Mnemome
+    preference candidates are intentionally absent from all execution steps.
+  - Shared metadata contains selected long-term evidence, cultural artifacts, and runtime time context.
+    Treat it as supporting context only. The assigned Input remains the authoritative action and target
+    scope, and current tool results remain authoritative for external facts.
   - For every non-final tool, follow the exposed tool description and schema together. Output one JSON
     array, use only schema fields, fill inferable required fields, and do not invent parameters.
   - For search_retrieve news steps, set domain to news and prefer limit 15 unless the user requested a
@@ -101,15 +87,15 @@ step_policy: |-
     If parallel steps target A, B, and C, the A step must query A only, never A B C. Do not reconstruct
     the complete target set from History or from the original request.
   - For remember_preference, pass condition and action separately. condition must state when the durable
-    preference applies; action must contain only the future behavior to perform when it applies. For this
-    tool only, Metadata.current_user_request is the authoritative source; do not trust a conflicting or
-    incomplete Input title. Exclude current-turn constraints such as do not search now or this time. Do
-    not call it for a read-only question about stored preferences.
+    preference applies; action must contain only the future behavior to perform when it applies. The
+    planner must make the remember_preference Input self-contained from the current User Request. Exclude
+    current-turn constraints such as do not search now or this time. Do not call it for a read-only
+    question about stored preferences.
   - For no_tool and final_answer response steps, output user-facing text only and use relevant successful
-    results from History. If a news request was expanded by a preference, Metadata.current_user_request
-    identifies the primary target and the applicable structured preference identifies related targets.
-    Name the actual primary target first and label preference-added targets as related context. Never
-    introduce the response as an equal multi-target summary or comparison, even if Input does so.
+    results from History. The assigned Input must already identify the primary target and any related
+    targets added by an applicable preference. Name the actual primary target first and label
+    preference-added targets as related context. Never introduce the response as an equal multi-target
+    summary or comparison, even if Input does so.
 
 final_policy: |-
   ## Mnemome final response policy

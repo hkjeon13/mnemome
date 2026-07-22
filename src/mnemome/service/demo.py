@@ -24,7 +24,7 @@ from .demo_imports import (
     DemoImportProcessBody,
     DemoImportStudio,
 )
-from .prompting import build_demo_prompt_template, load_preference_intent_policy
+from .prompting import build_demo_prompt_template
 
 DEMO_COOKIE = "mnemome_demo_session"
 DEMO_TENANT_PREFIX = "demo_"
@@ -42,44 +42,6 @@ DEFAULT_MCP_TOOLS = (
 )
 
 logger = logging.getLogger("mnemome.service.demo")
-
-
-async def _assess_preference_write(model: Any, query: str) -> dict[str, Any]:
-    fallback = {
-        "durable": False,
-        "condition": None,
-        "action": None,
-        "execute_now": False,
-        "decision_owner": "agent_llm",
-        "status": "unavailable",
-    }
-    try:
-        output = await model.generate(
-            [
-                {"role": "system", "content": load_preference_intent_policy()},
-                {"role": "user", "content": query},
-            ]
-        )
-        raw = str(output.text or "").strip()
-        if raw.startswith("```"):
-            raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        payload = json.loads(raw)
-        durable = payload.get("durable") is True
-        condition = str(payload.get("condition") or "").strip() or None
-        action = str(payload.get("action") or "").strip() or None
-        if durable and (not condition or not action):
-            return fallback
-        return {
-            "durable": durable,
-            "condition": condition if durable else None,
-            "action": action if durable else None,
-            "execute_now": payload.get("execute_now") is True,
-            "decision_owner": "agent_llm",
-            "status": "decided",
-        }
-    except Exception:
-        logger.exception("Agent preference intent decision failed")
-        return fallback
 
 
 def _preference_candidate(entry: Any) -> dict[str, Any]:
@@ -279,17 +241,21 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
         "is_imported": bool(fact.metadata.get("import_job_id")),
     }
     stored_turns = fact.metadata.get("conversation_turns")
-    turns = [
-        {
-            "role": str(turn.get("role") or ""),
-            "content": str(turn.get("content") or ""),
-            **({"timestamp": str(turn.get("timestamp"))} if turn.get("timestamp") else {}),
-        }
-        for turn in stored_turns
-        if isinstance(turn, dict)
-        and str(turn.get("role") or "") in {"user", "assistant"}
-        and str(turn.get("content") or "").strip()
-    ] if isinstance(stored_turns, list) else []
+    turns = (
+        [
+            {
+                "role": str(turn.get("role") or ""),
+                "content": str(turn.get("content") or ""),
+                **({"timestamp": str(turn.get("timestamp"))} if turn.get("timestamp") else {}),
+            }
+            for turn in stored_turns
+            if isinstance(turn, dict)
+            and str(turn.get("role") or "") in {"user", "assistant"}
+            and str(turn.get("content") or "").strip()
+        ]
+        if isinstance(stored_turns, list)
+        else []
+    )
     query = next(
         (turn["content"] for turn in turns if turn["role"] == "user"),
         _conversation_query(fact),
@@ -304,7 +270,8 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
             "answer": latest_answer,
             "run_id": fact.metadata.get("latest_run_id") or fact.metadata.get("run_id"),
             "session_id": fact.metadata.get("conversation_session_id"),
-            "turns": turns or [
+            "turns": turns
+            or [
                 {"role": "user", "content": query},
                 {"role": "assistant", "content": fact.statement},
             ],
@@ -324,69 +291,6 @@ def _is_import_memory(fact: Any) -> bool:
 
 def _is_clearable_memory(fact: Any) -> bool:
     return not _is_seed_memory(fact) and not _is_import_memory(fact)
-
-
-def _workflow_trace(payload: dict[str, Any] | None) -> dict[str, Any]:
-    nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
-    safe_nodes = [node for node in nodes if isinstance(node, dict)]
-    plan_node = next((node for node in safe_nodes if node.get("kind") == "plan"), None)
-    run_node = next((node for node in safe_nodes if node.get("kind") == "run"), None)
-    step_nodes = [node for node in safe_nodes if node.get("kind") == "step"]
-    indexed_nodes = {
-        node.get("metadata", {}).get("step_index"): node
-        for node in step_nodes
-        if isinstance(node.get("metadata"), dict)
-    }
-    raw_steps = []
-    if plan_node and isinstance(plan_node.get("metadata"), dict):
-        candidate_steps = plan_node["metadata"].get("steps", [])
-        if isinstance(candidate_steps, list):
-            raw_steps = candidate_steps
-
-    steps: list[dict[str, Any]] = []
-    for position, raw_step in enumerate(raw_steps, start=1):
-        if not isinstance(raw_step, dict):
-            continue
-        raw_index = raw_step.get("index")
-        node = indexed_nodes.get(raw_index) or indexed_nodes.get(position - 1) or {}
-        title = str(raw_step.get("text") or node.get("label") or f"Step {position}")
-        steps.append(
-            {
-                "index": position,
-                "title": title[:240],
-                "tool": str(raw_step.get("tool") or "final_answer")[:80],
-                "status": str(node.get("status") or "ok"),
-                "latency_ms": node.get("latency_ms"),
-            }
-        )
-    if not steps:
-        for position, node in enumerate(step_nodes, start=1):
-            steps.append(
-                {
-                    "index": position,
-                    "title": str(node.get("label") or f"Step {position}")[:240],
-                    "tool": str(node.get("metadata", {}).get("tool") or "final_answer")[:80],
-                    "status": str(node.get("status") or "ok"),
-                    "latency_ms": node.get("latency_ms"),
-                }
-            )
-
-    llm_calls = 0
-    for node in safe_nodes:
-        metadata = node.get("metadata")
-        if isinstance(metadata, dict) and isinstance(metadata.get("llm_events"), list):
-            llm_calls += len(metadata["llm_events"])
-    return {
-        "plan": {
-            "title": str((plan_node or {}).get("label") or "Direct response")[:180],
-            "status": str((plan_node or {}).get("status") or "ok"),
-            "latency_ms": (plan_node or {}).get("latency_ms"),
-            "step_count": len(steps),
-        },
-        "steps": steps,
-        "llm_calls": llm_calls,
-        "total_latency_ms": (run_node or {}).get("latency_ms"),
-    }
 
 
 def _mcp_settings() -> tuple[str, set[str]]:
@@ -409,8 +313,10 @@ async def _run_lotte_agent(
 ) -> tuple[str, list[Any], float, str, dict[str, Any], bool, dict[str, Any]]:
     try:
         from lotte_agent import AsyncToolCallingAgent
+        from lotte_agent.agents.agent_types import AgentTask
         from lotte_agent.memory import MemoryEntry, MemoryEntryKind
         from lotte_agent.models import AsyncOpenAIClient
+        from lotte_agent.models.model_types import TextInput
         from lotte_agent.tools import McpToolSpecClient, ToolSpec
 
         from ..integrations.lotte_agent import MnemomeLongTermMemory
@@ -442,19 +348,25 @@ async def _run_lotte_agent(
     captured_preference = False
     preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
 
-    relevant = await memory.search(query, top_k=5)
-    recalled = list(preferences)
-    recalled.extend(entry for entry in relevant if entry.id not in {item.id for item in recalled})
-    recalled = recalled[:8]
-    cultural_context = "\n".join(
-        (
-            f"- 원칙: {artifact.claim}\n"
-            f"  적용 조건: {', '.join(artifact.conditions) or '항상'}\n"
-            f"  금지/주의: {', '.join(artifact.restrictions) or '없음'}\n"
-            f"  복구: {artifact.recovery or '해당 없음'}"
-        )
-        for artifact in cultural_artifacts
-    ) or "- 적용할 문화적 기억 없음"
+    relevant = [
+        entry
+        for entry in await memory.search(query, top_k=5)
+        if entry.id != memory.conversation_entry_id and entry.kind != MemoryEntryKind.PREFERENCE
+    ]
+    recalled = [*preferences, *relevant]
+    cultural_context = {
+        "artifacts": [
+            {
+                "id": artifact.artifact_id,
+                "claim": artifact.claim,
+                "conditions": list(artifact.conditions),
+                "restrictions": list(artifact.restrictions),
+                "recovery": artifact.recovery,
+            }
+            for artifact in cultural_artifacts
+        ]
+    }
+
     async def remember_preference(condition: str, action: str) -> dict[str, str]:
         nonlocal captured_preference, preferences, recalled
         normalized_condition = " ".join(condition.split())
@@ -503,10 +415,7 @@ async def _run_lotte_agent(
         )
         captured_preference = True
         preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
-        recalled = list(preferences)
-        recalled_ids = {item.id for item in recalled}
-        recalled.extend(entry for entry in relevant if entry.id not in recalled_ids)
-        recalled = recalled[:8]
+        recalled = [*preferences, *relevant]
         return {
             "status": "stored",
             "preference": normalized,
@@ -514,49 +423,43 @@ async def _run_lotte_agent(
             "action": normalized_action,
         }
 
-    preference_write_decision = await _assess_preference_write(live_model, query)
-    if preference_write_decision["durable"]:
-        result = await remember_preference(
-            str(preference_write_decision["condition"]),
-            str(preference_write_decision["action"]),
-        )
-        preference_write_decision["storage_status"] = result["status"]
-    else:
-        preference_write_decision["storage_status"] = "not_requested"
-
+    task_history = [
+        TextInput(text=f"{turn['role'].upper()}: {turn['content']}")
+        for turn in conversation_turns[-20:]
+    ]
+    agent_task = AgentTask(
+        task_id=run_id,
+        # Lotte Agent 0.0.11 otherwise mirrors the first TextInput into ``input`` and
+        # concatenates both values when it builds the long-term-memory search query.
+        input="",
+        inputs=[TextInput(text=query, history=task_history or None)],
+    )
     agent_metadata = {
-        "language": "ko",
-        "prompt_strategy": "lotte-agent-default+mnemome-unified-v1",
-        "current_user_request": query,
-        "mnemome": {
-            "cultural_principles": cultural_context,
-            "current_conversation": {
-                "session_id": conversation_id,
-                "turn_count": len(conversation_turns),
-                "history": conversation_turns[-20:],
-            },
+        "memory": {
+            "long_term_evidence": [
+                {
+                    "id": entry.id,
+                    "kind": entry.kind.value,
+                    "content": entry.content,
+                    "tags": list(entry.tags),
+                }
+                for entry in relevant
+            ],
+            "cultural": cultural_context,
         },
         "plan_prerequisites": {
-            "mnemome": {
-                "preference_write_decision": preference_write_decision,
-                "preference_application": {
+            "memory": {
+                "preference_policy": {
                     "decision_owner": "planner_llm",
-                    "current_request": query,
                     "instruction": (
-                        "Evaluate every candidate condition semantically against current_request. "
+                        "Evaluate every candidate condition semantically against the current User "
+                        "Request. "
                         "Use its action only when the condition applies. Presence in candidates "
                         "does not mean it applies. For legacy_unstructured candidates, infer "
                         "condition and action from raw_rule before deciding."
                     ),
                 },
-                "preference_candidates": [
-                    _preference_candidate(entry) for entry in preferences
-                ],
-                "recalled_memories": [
-                    {"kind": entry.kind.value, "content": entry.content}
-                    for entry in recalled
-                    if entry.kind != MemoryEntryKind.PREFERENCE
-                ],
+                "preference_candidates": [_preference_candidate(entry) for entry in preferences],
             }
         },
     }
@@ -584,20 +487,31 @@ async def _run_lotte_agent(
                     "조건이 충족됐을 때 수행할 동작만 자립적으로 작성합니다. 지금, 현재, "
                     "이번 요청에만 적용되는 실행 지시는 제외합니다."
                 ),
-            }
+            },
         },
         required=["condition", "action"],
     )
 
     started = time.perf_counter()
-    workflow_payload: dict[str, Any] | None = None
+    execution_trace: dict[str, Any] = {
+        "plan": {
+            "title": "Direct response",
+            "status": "ok",
+            "latency_ms": None,
+            "step_count": 0,
+        },
+        "steps": [],
+        "llm_calls": 0,
+        "total_latency_ms": None,
+    }
     mcp_url, allowed_tools = _mcp_settings()
     mcp_status: dict[str, Any] = {
         "status": "not_configured" if not mcp_url else "unavailable",
         "tool_count": 0,
         "tools": [],
     }
-    async def execute_agent(agent_tools: list[Any]) -> tuple[str, dict[str, Any] | None]:
+
+    async def execute_agent(agent_tools: list[Any]) -> str:
         async with AsyncToolCallingAgent(
             model=live_model,
             tools=agent_tools,
@@ -615,31 +529,44 @@ async def _run_lotte_agent(
             max_replans=0,
             num_steps=6,
             debug_verbosity="none",
-            workflow_cache_dir="/tmp/mnemome-workflows",
-            tracking_workflow_detail="preview",
         ) as agent:
             final_parts: list[str] = []
-            async with asyncio.timeout(45):
-                async for chunk in agent.run_stream(
-                    query,
-                    run_id=run_id,
-                    metadata=agent_metadata,
-                    tracking_workflow=True,
-                    return_trimmed_stream=False,
-                ):
-                    if stream_progress is not None and chunk.type == "plan":
-                        plan_payload = chunk.plan if isinstance(chunk.plan, dict) else {}
-                        raw_steps = plan_payload.get("steps", [])
-                        safe_steps = [
+            async for chunk in agent.run_stream(
+                agent_task,
+                run_id=run_id,
+                metadata=agent_metadata,
+                language="ko",
+                tracking_workflow=False,
+                return_trimmed_stream=False,
+            ):
+                if chunk.type == "plan":
+                    plan_payload = chunk.plan if isinstance(chunk.plan, dict) else {}
+                    raw_steps = plan_payload.get("steps", [])
+                    safe_steps = [
+                        {
+                            "index": step.get("index"),
+                            "title": str(step.get("text") or "")[:240],
+                            "tool": str(step.get("tool") or "")[:80],
+                        }
+                        for step in raw_steps
+                        if isinstance(step, dict) and str(step.get("text") or "").strip()
+                    ]
+                    if safe_steps:
+                        execution_trace["plan"] = {
+                            "title": f"Plan ({len(safe_steps)} steps)",
+                            "status": "ok",
+                            "latency_ms": None,
+                            "step_count": len(safe_steps),
+                        }
+                        execution_trace["steps"] = [
                             {
-                                "index": step.get("index"),
-                                "title": str(step.get("text") or "")[:240],
-                                "tool": str(step.get("tool") or "")[:80],
+                                **step,
+                                "status": "pending",
+                                "latency_ms": None,
                             }
-                            for step in raw_steps
-                            if isinstance(step, dict) and str(step.get("text") or "").strip()
+                            for step in safe_steps
                         ]
-                        if safe_steps:
+                        if stream_progress is not None:
                             await stream_progress(
                                 {
                                     "kind": "plan",
@@ -647,11 +574,12 @@ async def _run_lotte_agent(
                                     "steps": safe_steps,
                                 }
                             )
-                    elif (
-                        stream_progress is not None
-                        and chunk.type == "step_start"
-                        and chunk.title
-                    ):
+                elif chunk.type == "step_start" and chunk.title:
+                    for position, step in enumerate(execution_trace["steps"], start=1):
+                        if chunk.index in {step.get("index"), position}:
+                            step["status"] = "running"
+                            break
+                    if stream_progress is not None:
                         await stream_progress(
                             {
                                 "kind": "step_start",
@@ -659,11 +587,17 @@ async def _run_lotte_agent(
                                 "title": str(chunk.title)[:240],
                             }
                         )
-                    elif (
-                        stream_progress is not None
-                        and chunk.type == "text"
-                        and chunk.is_last_chunk
+                elif chunk.type == "text" and chunk.is_last_chunk:
+                    matched_step = False
+                    for position, step in enumerate(execution_trace["steps"], start=1):
+                        if chunk.index in {step.get("index"), position}:
+                            step["status"] = "error" if chunk.finish_reason == "error" else "ok"
+                            matched_step = True
+                            break
+                    if (
+                        matched_step
                         and chunk.finish_reason != "error"
+                        and stream_progress is not None
                     ):
                         await stream_progress(
                             {
@@ -671,20 +605,16 @@ async def _run_lotte_agent(
                                 "index": chunk.index,
                             }
                         )
-                    delta = chunk.delta_text if chunk.type == "text" else ""
-                    if not delta or not chunk.is_last_step:
-                        continue
-                    final_parts.append(delta)
-                    if stream_delta is not None:
-                        await stream_delta(delta)
-            workflow_payload = agent.get_workflow_payload(run_id)
-            artifact_path = agent.get_workflow_artifact_path(run_id)
-            if artifact_path:
-                try:
-                    Path(artifact_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
-            return "".join(final_parts), workflow_payload
+                delta = chunk.delta_text if chunk.type == "text" else ""
+                if not delta or not chunk.is_last_step:
+                    continue
+                final_parts.append(delta)
+                if stream_delta is not None:
+                    await stream_delta(delta)
+            execution_trace["llm_calls"] = 1 + sum(
+                step["status"] in {"ok", "error"} for step in execution_trace["steps"]
+            )
+            return "".join(final_parts)
 
     if mcp_url:
         connected = False
@@ -697,21 +627,22 @@ async def _run_lotte_agent(
                     "tool_count": len(agent_tools),
                     "tools": sorted(tool.name for tool in agent_tools),
                 }
-                result_text, workflow_payload = await execute_agent([memory_tool, *agent_tools])
+                result_text = await execute_agent([memory_tool, *agent_tools])
         except Exception:
             if connected:
                 raise
             mcp_status["detail"] = "MCP 도구 서버에 연결하지 못해 메모리 전용으로 실행했습니다."
-            result_text, workflow_payload = await execute_agent([memory_tool])
+            result_text = await execute_agent([memory_tool])
     else:
-        result_text, workflow_payload = await execute_agent([memory_tool])
+        result_text = await execute_agent([memory_tool])
     elapsed_ms = round((time.perf_counter() - started) * 1_000, 2)
+    execution_trace["total_latency_ms"] = elapsed_ms
     return (
         result_text,
         recalled,
         elapsed_ms,
         model_name,
-        _workflow_trace(workflow_payload),
+        execution_trace,
         captured_preference,
         mcp_status,
     )
@@ -806,8 +737,7 @@ async def _execute_demo_chat(
                 "count": 1 + len(execution_trace["steps"]),
                 "label": "Lotte Agent 단기 기억",
                 "detail": (
-                    "현재 질문과 plan/step 실행 문맥에만 유지되며 "
-                    "다음 요청에는 초기화됩니다."
+                    "현재 질문과 plan/step 실행 문맥에만 유지되며 다음 요청에는 초기화됩니다."
                 ),
                 "scope": completed.run_id,
             },
@@ -822,9 +752,7 @@ async def _execute_demo_chat(
                 ),
                 "snapshot_id": completed.cultural_snapshot_id,
                 "scope": "default",
-                "artifact_ids": [
-                    artifact.artifact_id for artifact in context.cultural_artifacts
-                ],
+                "artifact_ids": [artifact.artifact_id for artifact in context.cultural_artifacts],
             },
         },
         "recalled": [
@@ -900,9 +828,7 @@ def build_demo_router() -> APIRouter:
         await limiter.check(session_id)
         application = request.app.state.application
         await _seed_cultural_memory(application, tenant_id)
-        snapshot, artifacts = await application.resolve_cultural_snapshot(
-            tenant_id, "default"
-        )
+        snapshot, artifacts = await application.resolve_cultural_snapshot(tenant_id, "default")
         if snapshot is None:
             raise HTTPException(status_code=503, detail="문화적 메모리 스냅샷이 없습니다.")
         return _cultural_payload(snapshot, artifacts)
@@ -917,9 +843,7 @@ def build_demo_router() -> APIRouter:
         await limiter.check(session_id)
         application = request.app.state.application
         await _seed_memories(application, tenant_id)
-        memories = await application.list_facts(
-            tenant_id, kind=kind, limit=MAX_DEMO_MEMORIES
-        )
+        memories = await application.list_facts(tenant_id, kind=kind, limit=MAX_DEMO_MEMORIES)
         clearable_count = sum(_is_clearable_memory(memory) for memory in memories)
         return {
             "items": [_memory_payload(memory) for memory in memories],

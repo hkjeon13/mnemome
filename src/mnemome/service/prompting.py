@@ -8,18 +8,6 @@ PROMPT_OVERLAY_PATH = Path(__file__).with_name("prompts.yaml")
 
 
 @lru_cache(maxsize=1)
-def load_preference_intent_policy() -> str:
-    """Load the semantic pre-planning preference decision contract."""
-    import yaml
-
-    overlay = yaml.safe_load(PROMPT_OVERLAY_PATH.read_text(encoding="utf-8")) or {}
-    policy = str(overlay.get("preference_intent_policy") or "").strip()
-    if not policy:
-        raise RuntimeError("Mnemome preference intent policy is missing")
-    return policy
-
-
-@lru_cache(maxsize=1)
 def build_demo_prompt_template() -> dict[str, Any]:
     """Layer Mnemome policy onto Lotte Agent's installed default YAML template."""
     import yaml
@@ -36,33 +24,38 @@ def build_demo_prompt_template() -> dict[str, Any]:
     step_template = str(prompt_template.get("step") or "")
     actual_task_marker = "Now, there is the actual task:"
     step_marker = f"---\n{actual_task_marker}"
+    plan_metadata_marker = "**Metadata:** {{metadata}}"
     step_metadata_marker = "Metadata: {{metadata}}"
     step_response_marker = "Input: {{input}}\nResponse:"
     if (
         not all(policies.values())
         or PLAN_PROMPT_SPLIT_MARKER not in plan_template
+        or plan_metadata_marker not in plan_template
         or step_marker not in step_template
         or step_metadata_marker not in step_template
         or step_response_marker not in step_template
     ):
         raise RuntimeError("Mnemome prompt overlay or Lotte Agent plan marker is missing")
-    prompt_template["plan"] = plan_template.replace(
+    plan_template = plan_template.replace(
         PLAN_PROMPT_SPLIT_MARKER,
         f"{policies['plan_policy']}\n\n---\n\n{PLAN_PROMPT_SPLIT_MARKER}",
         1,
     )
-    step_template = step_template.replace(
-        step_metadata_marker,
-        """{% if tool == 'no_tool' or tool.startswith('final_answer') %}
-Metadata: {{metadata}}
-{% else %}
-Runtime Metadata:
+    prompt_template["plan"] = plan_template.replace(
+        plan_metadata_marker,
+        """**Runtime Context:**
 - current_date={{metadata.current_date | default('')}}
 - current_datetime={{metadata.current_datetime | default('')}}
 - timezone={{metadata.timezone | default('')}}
-Mnemome preferences are intentionally unavailable in tool execution steps.
-Use only Input for the target scope.
-{% endif %}""",
+**Memory Context:** {{metadata.memory | default({})}}
+**Plan Prerequisites:** {{prerequisites}}""",
+        1,
+    )
+    step_template = step_template.replace(
+        step_metadata_marker,
+        """Runtime and shared memory metadata is appended once to Input as [metadata].
+Planner-only preference candidates are intentionally unavailable in execution steps.
+Use the assigned Input as the authoritative action and target scope.""",
         1,
     )
     step_template = step_template.replace(
@@ -83,12 +76,10 @@ Response:""",
         1,
     )
     prompt_template["final_instruction"] = (
-        f"{policies['final_policy']}\n\n"
-        f"{str(prompt_template.get('final_instruction') or '')}"
+        f"{policies['final_policy']}\n\n{str(prompt_template.get('final_instruction') or '')}"
     )
     for key in ("replan", "plan_repair"):
         prompt_template[key] = (
-            f"{policies['plan_policy']}\n\n---\n\n"
-            f"{str(prompt_template.get(key) or '')}"
+            f"{policies['plan_policy']}\n\n---\n\n{str(prompt_template.get(key) or '')}"
         )
     return prompt_template

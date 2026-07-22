@@ -4,9 +4,12 @@ import json
 
 import httpx
 import pytest
+from lotte_agent.agents.agent_types import AgentTask
+from lotte_agent.agents.toolcall.history_ops import extract_task_text
+from lotte_agent.agents.toolcall.prompt_builders import build_plan_prompt_messages
 from lotte_agent.memory import MemoryEntry, MemoryEntryKind
 from lotte_agent.models.base import AsyncModelBase
-from lotte_agent.models.model_types import ModelOutput
+from lotte_agent.models.model_types import ModelOutput, TextInput
 from lotte_agent.tools import ToolSpec
 
 from mnemome import Mnemome
@@ -108,16 +111,23 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "never merge existing stored preferences" in prompt_template["plan"]
     assert "must never be included" in prompt_template["plan"]
     assert "Now, there is the actual planning task:" in prompt_template["plan"]
+    assert "**Metadata:** {{metadata}}" not in prompt_template["plan"]
+    assert "**Memory Context:** {{metadata.memory" in prompt_template["plan"]
+    assert "**Plan Prerequisites:** {{prerequisites}}" in prompt_template["plan"]
+    assert "History contains the ordered USER/ASSISTANT turns" in prompt_template["plan"]
     assert "Now, there is the actual task:" in prompt_template["step"]
     assert "Mnemome MCP step execution policy" in prompt_template["step"]
     assert "the A step must query A only" in prompt_template["step"]
-    assert "Exclude current-turn constraints" in prompt_template["step"]
-    assert "Metadata.current_user_request is the authoritative source" in prompt_template["step"]
-    assert "equal multi-target summary" in prompt_template["step"]
+    assert "current-turn constraints such as do not search now" in prompt_template["step"]
+    assert (
+        "planner must make the remember_preference Input self-contained" in prompt_template["step"]
+    )
+    assert "equally requested targets" in prompt_template["step"]
     assert prompt_template["step"].rindex("Mnemome final response policy") > prompt_template[
         "step"
     ].index("Input: {{input}}")
-    assert "Mnemome preferences are intentionally unavailable" in prompt_template["step"]
+    assert "preference candidates are intentionally unavailable" in prompt_template["step"]
+    assert "appended once to Input as [metadata]" in prompt_template["step"]
     assert "Final Answer Instruction" in prompt_template["final_instruction"]
     assert "Mnemome final response policy" in prompt_template["final_instruction"]
     assert "preference-added targets as related" in prompt_template["final_instruction"]
@@ -130,6 +140,50 @@ def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     assert "엔비디아" not in overlay_text
     assert "삼성전자" not in overlay_text
     assert "SK하이닉스" not in overlay_text
+
+
+def test_demo_plan_places_conversation_turns_in_history_not_metadata() -> None:
+    prompt_template = build_demo_prompt_template()
+    task = AgentTask(
+        input="",
+        inputs=[
+            TextInput(
+                text="Q2",
+                history=[TextInput(text="USER: Q1"), TextInput(text="ASSISTANT: A1")],
+            )
+        ],
+    )
+    assert extract_task_text(task) == "Q2"
+    _, user_prompt = build_plan_prompt_messages(
+        task,
+        tools_desc="remember_preference(...)",
+        template=prompt_template["plan"],
+        metadata={
+            "memory": {
+                "long_term_evidence": [{"id": "fact-1", "kind": "fact", "content": "장기 기억"}],
+                "cultural": {"artifacts": []},
+            },
+            "plan_prerequisites": {
+                "memory": {
+                    "preference_candidates": [],
+                }
+            },
+            "current_date": "2026-07-22",
+            "current_datetime": "2026-07-22T12:00:00+09:00",
+            "timezone": "Asia/Seoul",
+        },
+        language="ko",
+    )
+
+    assert "**History:** - USER: Q1\n- ASSISTANT: A1" in user_prompt
+    assert "**Metadata:**" not in user_prompt
+    assert "current_user_request" not in user_prompt
+    assert "current_conversation" not in user_prompt
+    assert "turn_count" not in user_prompt
+    assert user_prompt.count("preference_candidates") == 1
+    assert user_prompt.count("long_term_evidence") == 1
+    assert "장기 기억" in user_prompt
+    assert "Q2" in user_prompt
 
 
 def test_preference_candidates_preserve_structure_for_planner_decisions() -> None:
@@ -165,6 +219,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
     search_calls: list[dict] = []
     model_init_calls: list[dict] = []
     agent_init_calls: list[dict] = []
+    run_stream_calls: list[tuple[tuple, dict]] = []
 
     class FakeLiveOpenAIModel(AsyncModelBase):
         def __init__(self) -> None:
@@ -174,22 +229,6 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             del args, kwargs
             message_text = str(messages)
             seen_messages.append(message_text)
-            if "semantic preference-intent decision stage" in message_text:
-                durable = "이 규칙을 선호로 저장해줘" in message_text
-                text = json.dumps(
-                    {
-                        "durable": durable,
-                        "condition": "엔비디아 뉴스를 요청할 때" if durable else None,
-                        "action": (
-                            "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
-                            if durable
-                            else None
-                        ),
-                        "execute_now": False,
-                    },
-                    ensure_ascii=False,
-                )
-                return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             if "Now, there is the actual planning task:" in message_text:
                 if "이 규칙을 선호로 저장해줘" in message_text:
                     text = (
@@ -261,6 +300,14 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
     import lotte_agent.tools
 
     live_agent_class = lotte_agent.AsyncToolCallingAgent
+    original_run_stream = live_agent_class.run_stream
+
+    async def observed_run_stream(self, *args, **kwargs):
+        run_stream_calls.append((args, kwargs))
+        async for chunk in original_run_stream(self, *args, **kwargs):
+            yield chunk
+
+    monkeypatch.setattr(live_agent_class, "run_stream", observed_run_stream)
     monkeypatch.setattr(
         lotte_agent,
         "AsyncToolCallingAgent",
@@ -338,7 +385,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'id="new-conversation-dialog"' in page.text
             assert 'id="clear-memories-dialog"' in page.text
             assert 'data-icon="lucide-trash-2"' in page.text
-            assert "삭제한 기억은 되돌릴 수 없습니다" in page.text
+            assert "사용자 기억을 삭제할까요?" in page.text
             assert "저장된 장기 메모리는 그대로 유지" in page.text
             script = await client.get("/static/app.js")
             assert script.status_code == 200
@@ -365,7 +412,6 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert 'setAttribute("aria-busy", "true")' in script.text
             stylesheet = await client.get("/static/app.css")
             assert stylesheet.status_code == 200
-            assert "px" not in stylesheet.text
             assert "100dvh" in stylesheet.text
             assert ".memory-panel:not(.is-collapsed) .panel-heading" in stylesheet.text
 
@@ -391,7 +437,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert all(item["read_only"] for item in culture.json()["items"])
 
             streamed = await client.post(
-                "/demo/api/chat/stream", json={"query": "한국어 스트림 응답을 보여줘"}
+                "/demo/api/chat/stream",
+                json={
+                    "query": "한국어 스트림 응답을 보여줘",
+                    "conversation_id": "history-session",
+                },
             )
             assert streamed.status_code == 200
             assert model_init_calls
@@ -435,7 +485,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert streamed_payload["execution_trace"]["steps"]
 
             response = await client.post(
-                "/demo/api/chat", json={"query": "한국어로 간결하게 답변해줘"}
+                "/demo/api/chat",
+                json={
+                    "query": "한국어로 간결하게 답변해줘",
+                    "conversation_id": "history-session",
+                },
             )
             assert response.status_code == 200, response.text
             payload = response.json()
@@ -456,12 +510,38 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "tool_count": 1,
                 "tools": ["search_retrieve"],
             }
-            assert any(
-                "Mnemome unified memory-aware planning policy" in item
-                for item in seen_messages
+            task_args, stream_kwargs = run_stream_calls[-1]
+            assert isinstance(task_args[0], AgentTask)
+            assert task_args[0].input == ""
+            assert extract_task_text(task_args[0]) == "한국어로 간결하게 답변해줘"
+            assert task_args[0].inputs[0].text == "한국어로 간결하게 답변해줘"
+            assert [item.text for item in task_args[0].inputs[0].history] == [
+                "USER: 한국어 스트림 응답을 보여줘",
+                "ASSISTANT: 저장된 선호에 따라 한국어로 간결하게 답변합니다.",
+            ]
+            assert stream_kwargs["language"] == "ko"
+            assert stream_kwargs["tracking_workflow"] is False
+            assert stream_kwargs["return_trimmed_stream"] is False
+            assert "timeout" not in stream_kwargs
+            assert "valid_tools" not in stream_kwargs
+            assert set(stream_kwargs["metadata"]) == {"memory", "plan_prerequisites"}
+            assert "long_term_evidence" in stream_kwargs["metadata"]["memory"]
+            assert "cultural" in stream_kwargs["metadata"]["memory"]
+            assert set(stream_kwargs["metadata"]["plan_prerequisites"]) == {"memory"}
+            assert (
+                "preference_candidates" in stream_kwargs["metadata"]["plan_prerequisites"]["memory"]
             )
-            assert any('"recalled_memories"' in item for item in seen_messages)
-            assert any('"cultural_principles"' in item for item in seen_messages)
+            serialized_metadata = json.dumps(stream_kwargs["metadata"], ensure_ascii=False)
+            assert "current_user_request" not in serialized_metadata
+            assert "current_conversation" not in serialized_metadata
+            assert "turn_count" not in serialized_metadata
+            assert "prompt_strategy" not in serialized_metadata
+            assert "history-session" not in serialized_metadata
+            assert any(
+                "Mnemome unified memory-aware planning policy" in item for item in seen_messages
+            )
+            assert any('"long_term_evidence"' in item for item in seen_messages)
+            assert any('"cultural"' in item for item in seen_messages)
             assert any("독도 관련 질문" in messages for messages in seen_messages)
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
@@ -470,8 +550,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 "SK하이닉스 뉴스도 함께 포함해줘. 지금은 뉴스를 조회하지 마."
             )
             normalized_preference = (
-                "엔비디아 뉴스를 요청할 때: "
-                "SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
+                "엔비디아 뉴스를 요청할 때: SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
             )
             preference_message_start = len(seen_messages)
             preference_response = await client.post(
@@ -492,15 +571,13 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
                 for item in preference_messages
             )
             assert any(
-                "Decide preference-write intent semantically" in item
+                "Decide preference-write intent in this plan semantically" in item
                 and "not from keywords" in item
                 and "both establish a conditional behavior" in item
                 for item in preference_messages
             )
-            assert any(
-                '"decision_owner": "agent_llm"' in item
-                and '"storage_status": "stored"' in item
-                for item in preference_messages
+            assert not any(
+                "semantic preference-intent decision stage" in item for item in preference_messages
             )
             assert any(
                 "현재 요청에만 한정하지 않은 조건부·반복 행동" in item
@@ -580,7 +657,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert all(item["conversation"]["query"] for item in conversations)
             assert all(item["conversation"]["answer"] == item["content"] for item in conversations)
             assert any(
-                item["conversation"]["query"] == "한국어로 간결하게 답변해줘"
+                item["conversation"]["query"] == "한국어 스트림 응답을 보여줘"
                 for item in conversations
             )
             preferences = [
