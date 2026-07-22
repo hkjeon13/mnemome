@@ -23,6 +23,7 @@ HF_DATASET_VIEWER = "https://datasets-server.huggingface.co"
 MAX_LOCAL_ROWS = 2_000
 MAX_HF_ROWS = 1_000
 MAX_PREPARATIONS = 100
+MAX_IMPORT_JOBS = 100
 MAX_IMPORT_MEMORIES = 40
 DEFAULT_SAMPLE_SIZE = 5
 
@@ -63,6 +64,33 @@ class _Preparation:
     profile: dict[str, Any]
     code: str
     generator: str
+
+
+@dataclass(slots=True)
+class _ImportJob:
+    job_id: str
+    tenant_id: str
+    preparation_id: str
+    status: str = "QUEUED"
+    stage: str = "대기 중"
+    progress: int = 0
+    completed_sessions: int = 0
+    total_sessions: int = 0
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "preparation_id": self.preparation_id,
+            "status": self.status,
+            "stage": self.stage,
+            "progress": self.progress,
+            "completed_sessions": self.completed_sessions,
+            "total_sessions": self.total_sessions,
+            "result": self.result,
+            "error": self.error,
+        }
 
 
 def _json_digest(value: Any) -> str:
@@ -521,6 +549,8 @@ def _feature_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 class DemoImportStudio:
     def __init__(self) -> None:
         self._preparations: OrderedDict[str, _Preparation] = OrderedDict()
+        self._jobs: OrderedDict[str, _ImportJob] = OrderedDict()
+        self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
 
     async def _hf_request(
@@ -727,12 +757,93 @@ class DemoImportStudio:
                     "원본 ID 매핑을 수정한 뒤 다시 분석해 주세요."
                 ),
             )
-        rows = await self._all_rows(preparation)
         try:
-            result = _transform_rows(rows, body.code)
+            _transform_rows(preparation.rows[:DEFAULT_SAMPLE_SIZE], body.code)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        job = _ImportJob(
+            job_id=f"mij_{secrets.token_urlsafe(8)}",
+            tenant_id=tenant_id,
+            preparation_id=preparation_id,
+        )
+        async with self._lock:
+            self._jobs[job.job_id] = job
+            self._jobs.move_to_end(job.job_id)
+            while len(self._jobs) > MAX_IMPORT_JOBS:
+                removable = next(
+                    (
+                        job_id
+                        for job_id, candidate in self._jobs.items()
+                        if candidate.status in {"COMPLETED", "FAILED"}
+                    ),
+                    None,
+                )
+                if removable is None:
+                    break
+                self._jobs.pop(removable, None)
+
+        task = asyncio.create_task(
+            self._run_process(job, preparation, body.code, application),
+            name=f"demo-import-{job.job_id}",
+        )
+        self._tasks[job.job_id] = task
+        task.add_done_callback(lambda _task, job_id=job.job_id: self._tasks.pop(job_id, None))
+        return job.payload()
+
+    def job_status(self, tenant_id: str, job_id: str) -> dict[str, Any]:
+        job = self._jobs.get(job_id)
+        if job is None or job.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="import job을 찾을 수 없습니다.")
+        return job.payload()
+
+    async def _run_process(
+        self,
+        job: _ImportJob,
+        preparation: _Preparation,
+        code: str,
+        application: Any,
+    ) -> None:
+        try:
+            job.status = "RUNNING"
+            job.stage = "전체 row 불러오는 중"
+            job.progress = 10
+            await asyncio.sleep(0)
+            result = await self._execute_process(job, preparation, code, application)
+            job.result = result
+            job.status = "COMPLETED"
+            job.stage = "메모리 반영 완료"
+            job.progress = 100
+        except HTTPException as error:
+            job.status = "FAILED"
+            job.stage = "Processing 실패"
+            job.error = str(error.detail)[:500]
+        except Exception:
+            logger.exception("Background import job failed", extra={"job_id": job.job_id})
+            job.status = "FAILED"
+            job.stage = "Processing 실패"
+            job.error = "백그라운드 처리 중 문제가 발생했습니다."
+        finally:
+            preparation.source.token = None
+
+    async def _execute_process(
+        self,
+        job: _ImportJob,
+        preparation: _Preparation,
+        code: str,
+        application: Any,
+    ) -> dict[str, Any]:
+        tenant_id = job.tenant_id
+        preparation_id = job.preparation_id
+        rows = await self._all_rows(preparation)
+        job.stage = "session 대화로 변환하는 중"
+        job.progress = 35
+        try:
+            result = _transform_rows(rows, code)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         sessions = result["sessions"]
+        job.total_sessions = len(sessions)
         if len(sessions) > MAX_IMPORT_MEMORIES:
             raise HTTPException(
                 status_code=422,
@@ -740,6 +851,8 @@ class DemoImportStudio:
                     f"데모에서는 한 번에 session {MAX_IMPORT_MEMORIES}개까지 메모리로 저장합니다."
                 ),
             )
+        job.stage = "대화 메모리에 반영하는 중"
+        job.progress = 60
         existing = await application.list_facts(tenant_id, limit=100)
         capacity = max(0, 50 - len(existing))
         existing_keys = {
@@ -747,10 +860,10 @@ class DemoImportStudio:
             for item in existing
             if item.metadata.get("import_key")
         }
-        code_digest = hashlib.sha256(body.code.encode()).hexdigest()
+        code_digest = hashlib.sha256(code.encode()).hexdigest()
         created = 0
         duplicates = 0
-        for session in sessions:
+        for index, session in enumerate(sessions):
             import_key = _json_digest(
                 {
                     "source": preparation.source.file_name or preparation.source.repo_id,
@@ -760,6 +873,8 @@ class DemoImportStudio:
             )
             if import_key in existing_keys:
                 duplicates += 1
+                job.completed_sessions = index + 1
+                job.progress = 60 + int((index + 1) / max(1, len(sessions)) * 35)
                 continue
             if created >= capacity:
                 raise HTTPException(
@@ -793,10 +908,9 @@ class DemoImportStudio:
             )
             existing_keys.add(import_key)
             created += 1
-        preparation.source.token = None
+            job.completed_sessions = index + 1
+            job.progress = 60 + int((index + 1) / max(1, len(sessions)) * 35)
         return {
-            "job_id": f"mij_{secrets.token_urlsafe(8)}",
-            "status": "COMPLETED",
             "created": created,
             "duplicates": duplicates,
             "sessions": len(sessions),

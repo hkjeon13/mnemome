@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import HTTPException
@@ -116,6 +118,60 @@ async def test_reused_session_id_is_detected_and_processing_is_blocked() -> None
 
 
 @pytest.mark.asyncio
+async def test_processing_runs_as_background_job_after_request_returns() -> None:
+    class SlowApplication:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def list_facts(self, tenant_id: str, limit: int) -> list[object]:
+            return []
+
+        async def create_fact(self, *args: object, **kwargs: object) -> None:
+            self.started.set()
+            await self.release.wait()
+
+    studio = DemoImportStudio()
+    prepared = await studio.prepare(
+        "tenant",
+        DemoImportPrepareBody.model_validate(
+            {
+                "source": {"type": "local", "file_name": "background.json"},
+                "rows": [
+                    {
+                        "sessionId": "background-session",
+                        "conversation": [
+                            {"content": "질문", "role": "user", "timestamp": ""},
+                            {"content": "답변", "role": "assistant", "timestamp": ""},
+                        ],
+                    }
+                ],
+            }
+        ),
+    )
+    application = SlowApplication()
+
+    accepted = await studio.process(
+        "tenant",
+        prepared["preparation_id"],
+        DemoImportProcessBody(code=prepared["code"]),
+        application,
+    )
+
+    assert accepted["status"] == "QUEUED"
+    await asyncio.wait_for(application.started.wait(), timeout=1)
+    running = studio.job_status("tenant", accepted["job_id"])
+    assert running["status"] == "RUNNING"
+    assert running["stage"] == "대화 메모리에 반영하는 중"
+
+    application.release.set()
+    await asyncio.wait_for(studio._tasks[accepted["job_id"]], timeout=1)
+    completed = studio.job_status("tenant", accepted["job_id"])
+    assert completed["status"] == "COMPLETED"
+    assert completed["result"]["created"] == 1
+
+
+@pytest.mark.asyncio
 async def test_import_studio_previews_and_persists_conversation_memories(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -177,8 +233,18 @@ async def test_import_studio_previews_and_persists_conversation_memories(
                 f"/demo/api/imports/{payload['preparation_id']}/process",
                 json={"code": payload["code"]},
             )
-            assert processed.status_code == 200
-            assert processed.json()["created"] == 1
+            assert processed.status_code == 202
+            job_id = processed.json()["job_id"]
+            for _ in range(100):
+                status = await client.get(f"/demo/api/imports/jobs/{job_id}")
+                assert status.status_code == 200
+                job = status.json()
+                if job["status"] in {"COMPLETED", "FAILED"}:
+                    break
+                await asyncio.sleep(0)
+            assert job["status"] == "COMPLETED"
+            assert job["progress"] == 100
+            assert job["result"]["created"] == 1
 
             memories = await client.get("/demo/api/memories")
             imported = [

@@ -936,7 +936,7 @@ def build_demo_router() -> APIRouter:
         await limiter.check(session_id)
         return await import_studio.preview(tenant_id, preparation_id, body)
 
-    @router.post("/demo/api/imports/{preparation_id}/process")
+    @router.post("/demo/api/imports/{preparation_id}/process", status_code=202)
     async def process_import(
         preparation_id: str,
         body: DemoImportProcessBody,
@@ -951,6 +951,16 @@ def build_demo_router() -> APIRouter:
             body,
             request.app.state.application,
         )
+
+    @router.get("/demo/api/imports/jobs/{job_id}")
+    async def import_job_status(
+        job_id: str,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        session_id, tenant_id = _session(request, response)
+        await limiter.check(session_id)
+        return import_studio.job_status(tenant_id, job_id)
 
     @router.post("/demo/api/chat")
     async def chat(

@@ -145,9 +145,11 @@ main { width: min(73.75rem, calc(100% - 2.5rem)); margin: 0 auto; padding: 1.75r
 .search-field svg { width: 0.875rem; fill: none; stroke: var(--muted); stroke-width: 1.6; }
 .search-field input { width: 100%; padding: 0.625rem 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 0.75rem; }
 .import-button, .add-button, .new-conversation-button, .clear-button, .collapse-button { border-radius: 0.625rem; font-size: 0.6875rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
-.import-button { display: grid; flex: 0 0 auto; width: 2.375rem; height: 2.375rem; place-items: center; padding: 0; border: 0.0625rem solid #cfd8d2; background: #f4f8f5; color: #426d54; }
+.import-button { position: relative; display: grid; flex: 0 0 auto; width: 2.375rem; height: 2.375rem; place-items: center; padding: 0; border: 0.0625rem solid #cfd8d2; background: #f4f8f5; color: #426d54; }
 .import-button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .import-button:hover { border-color: #85a68f; color: #275f3d; background: #eaf3ed; }
+.import-button.is-processing svg { opacity: 0.25; }
+.import-button.is-processing::after { position: absolute; width: 1rem; height: 1rem; border: 0.125rem solid #b9ccbf; border-top-color: #2f7654; border-radius: 50%; animation: step-spin 0.8s linear infinite; content: ""; }
 .add-button { width: 2.375rem; height: 2.375rem; padding: 0; border: 0.0625rem solid #d7d7d7; background: #fff; color: var(--text); font-size: 1.25rem; font-weight: 400; }
 .add-button:hover { border-color: #999; background: #f5f5f5; }
 .new-conversation-button { display: grid; flex: 0 0 auto; width: 2.375rem; height: 2.375rem; place-items: center; padding: 0; border: 0.0625rem solid #d7d7d7; background: #fff; color: #555555; }
