@@ -13,14 +13,7 @@ from mnemome import Mnemome
 from mnemome.adapters import InMemoryStores
 from mnemome.integrations.lotte_agent import MnemomeLongTermMemory
 from mnemome.service.app import create_app
-from mnemome.service.demo import _needs_fresh_search
 from mnemome.service.settings import ApiPrincipal, Settings
-
-
-def test_news_query_requires_fresh_search() -> None:
-    assert _needs_fresh_search("엔비디아 뉴스") is True
-    assert _needs_fresh_search("오늘 엔비디아 관련 소식 찾아줘") is True
-    assert _needs_fresh_search("내가 선호하는 답변 방식은?") is False
 
 
 @pytest.mark.asyncio
@@ -56,7 +49,60 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
 
         async def generate(self, messages, *args, **kwargs):
             del args, kwargs
-            seen_messages.append(str(messages))
+            message_text = str(messages)
+            seen_messages.append(message_text)
+            if "QUERY_ROUTER_V1" in message_text:
+                if "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이" in message_text:
+                    text = json.dumps(
+                        {
+                            "version": "query-route-v1",
+                            "interaction": "store_preference",
+                            "preference_instruction": (
+                                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 "
+                                "함께 포함한다."
+                            ),
+                            "information_route": "general_or_agent_decides",
+                            "search_query": None,
+                            "confidence": 0.98,
+                        },
+                        ensure_ascii=False,
+                    )
+                elif "내가 지금까지 뉴스 물어본 기업들은?" in message_text:
+                    text = json.dumps(
+                        {
+                            "version": "query-route-v1",
+                            "interaction": "answer",
+                            "preference_instruction": None,
+                            "information_route": "memory_context",
+                            "search_query": None,
+                            "confidence": 0.99,
+                        },
+                        ensure_ascii=False,
+                    )
+                elif "엔비디아 뉴스" in message_text:
+                    text = json.dumps(
+                        {
+                            "version": "query-route-v1",
+                            "interaction": "answer",
+                            "preference_instruction": None,
+                            "information_route": "fresh_news",
+                            "search_query": "엔비디아 뉴스",
+                            "confidence": 0.99,
+                        },
+                        ensure_ascii=False,
+                    )
+                else:
+                    text = json.dumps(
+                        {
+                            "version": "query-route-v1",
+                            "interaction": "answer",
+                            "preference_instruction": None,
+                            "information_route": "general_or_agent_decides",
+                            "search_query": None,
+                            "confidence": 0.9,
+                        }
+                    )
+                return ModelOutput(model="gpt-live-test", text=text, finish_reason="stop")
             self.calls += 1
             if self.calls == 1:
                 text = '("[final_answer] 저장된 장기 기억으로 한국어 답변",)'
@@ -255,12 +301,34 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             )
             assert any("답변은 핵심부터 한국어로" in messages for messages in seen_messages)
 
-            preference_text = "앞으로 지명을 나타낼 때는 한자 표기도 함께 표시해줘."
+            preference_text = "엔비디아 뉴스 나타낼 때 하이닉스, 삼성전자도 같이"
+            normalized_preference = (
+                "엔비디아 뉴스를 요청하면 SK하이닉스와 삼성전자 관련 뉴스도 함께 포함한다."
+            )
+            preference_message_start = len(seen_messages)
             preference_response = await client.post(
                 "/demo/api/chat", json={"query": preference_text}
             )
             assert preference_response.status_code == 200, preference_response.text
             assert preference_response.json()["preference_captured"] is True
+            preference_messages = seen_messages[preference_message_start:]
+            assert not any("반드시 search_retrieve" in item for item in preference_messages)
+
+            follow_up_message_start = len(seen_messages)
+            follow_up = await client.post("/demo/api/chat", json={"query": "엔비디아 뉴스"})
+            assert follow_up.status_code == 200, follow_up.text
+            follow_up_messages = seen_messages[follow_up_message_start:]
+            assert any(normalized_preference in item for item in follow_up_messages)
+            assert any("최신 뉴스 확인이 필요한 요청" in item for item in follow_up_messages)
+
+            memory_message_start = len(seen_messages)
+            memory_query = await client.post(
+                "/demo/api/chat", json={"query": "내가 지금까지 뉴스 물어본 기업들은?"}
+            )
+            assert memory_query.status_code == 200, memory_query.text
+            memory_messages = seen_messages[memory_message_start:]
+            assert any("Mnemome 장기 기억을 우선 근거로" in item for item in memory_messages)
+            assert not any("반드시 search_retrieve" in item for item in memory_messages)
 
             memories = await client.get("/demo/api/memories")
             assert memories.json()["seeded_count"] == 3
@@ -279,7 +347,12 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             preferences = [
                 item for item in memories.json()["items"] if item["kind"] == "preference"
             ]
-            assert any(item["content"] == preference_text for item in preferences)
+            routed_preference = next(
+                item for item in preferences if item["content"] == normalized_preference
+            )
+            assert routed_preference["metadata"]["original_instruction"] == preference_text
+            assert routed_preference["metadata"]["router"] == "llm"
+            assert routed_preference["metadata"]["router_version"] == "query-route-v1"
 
             seeded = next(item for item in memories.json()["items"] if item["is_seed"])
             protected = await client.delete(f"/demo/api/memories/{seeded['id']}")

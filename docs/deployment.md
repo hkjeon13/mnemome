@@ -39,6 +39,14 @@ The public demo uses Lotte Agent's real `AsyncOpenAIClient`. Set
 the server-side `.env`. Public calls have per-session and global rate limits and
 a bounded model output budget.
 
+Before each Agent run, the demo uses the same configured model for one bounded,
+typed Query Router call. It jointly classifies durable preference storage and
+the information route (`fresh_news`, `fresh_web`, `memory_context`, or Agent
+decision). This replaces natural-language keyword branching and does not add a
+second routing model call. Invalid schema, timeout, or provider failure falls
+back to Agent decision without writing a preference; MCP tool access remains
+bounded by the server-side allowlist.
+
 The demo enables Lotte Agent workflow tracking for each chat run. Only a
 sanitized plan/step summary is returned to the browser; prompt and output
 previews remain server-local. Cultural memory is reported as unconfigured until

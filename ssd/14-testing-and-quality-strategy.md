@@ -127,6 +127,32 @@ seed and environment digest
 - effect size와 uncertainty를 보고한다.
 - early stop, safety stop과 sample exclusion을 사전 명세한다.
 
+### 6.4 Online Query Router 평가
+
+Demo service shell의 LLM Query Router는 사용자 요청을 typed route로 제한한다. Core memory domain의
+일부가 아니며, 동일 Query에서 선호 저장 여부와 information source 경로를 한 번에 결정한다.
+
+평가 dataset은 다음 의도를 구분해야 한다.
+
+- 현재 news 또는 외부 사실 확인
+- 과거 대화와 저장된 선호 조회
+- 지속 선호 저장만 수행
+- 선호 저장과 현재 요청을 함께 수행
+- 일반 지식 또는 Agent tool 판단 위임
+
+품질 gate는 exact 문구가 아니라 structured route를 기준으로 한다.
+
+- fresh route false positive/negative
+- preference write precision과 다음 대화 적용률
+- memory-context intent accuracy
+- 복합 의도 정확도
+- schema failure, timeout과 provider fallback 뒤 장기 memory 오염 여부
+- route latency, token과 비용
+
+PR에서는 deterministic fake/recorded model로 schema와 orchestration을 검증한다. 실제 provider 평가는
+고정된 model/prompt version과 semantic fixture로 별도 수행한다. Router 실패 시 keyword heuristic으로
+복귀하지 않고 `general_or_agent_decides`로 제한되며, 검증되지 않은 preference write는 금지한다.
+
 ---
 
 ## 7. Independence와 deliberation 검증
