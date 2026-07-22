@@ -402,6 +402,15 @@ async def _run_lotte_agent(
             "기억에 저장합니다. preference에는 트리거와 동작을 포함한 자립적인 한국어 "
             "규칙을 전달하세요. 단순 질문이나 일회성 요청에는 사용하지 마세요."
         ),
+        properties={
+            "preference": {
+                "type": "string",
+                "description": (
+                    "앞으로 반복 적용할 조건과 동작을 모두 포함한 자립적인 한국어 규칙"
+                ),
+            }
+        },
+        required=["preference"],
     )
 
     started = time.perf_counter()

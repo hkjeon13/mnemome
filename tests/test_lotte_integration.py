@@ -323,6 +323,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert preference_response.json()["preference_captured"] is True
             preference_messages = seen_messages[preference_message_start:]
             assert any("Tool: remember_preference" in item for item in preference_messages)
+            assert any(
+                '"preference":{"type":"string"' in item
+                and '"required":["preference"]' in item
+                for item in preference_messages
+            )
             assert search_calls == []
 
             follow_up_message_start = len(seen_messages)
