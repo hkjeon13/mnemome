@@ -21,6 +21,9 @@ plan_policy: |-
     explicit elliptical follow-up. Do not carry unrelated entities or actions from older turns.
   - Mnemome context in Metadata supplies preference_candidates, recalled memories, and cultural response
     principles that may apply to the current task. Metadata is control context; never copy it raw.
+  - Metadata.mnemome.current_conversation.history contains earlier turns from the currently open
+    conversation session. Use it to resolve follow-up references and maintain continuity, while treating
+    the current User Request as authoritative. Do not mix in turns from other conversation sessions.
   - preference_write_decision is the Agent LLM's structured semantic decision made immediately before
     planning. When it is durable and storage_status is stored or already_exists, the memory write has
     already been executed: do not call remember_preference again. If execute_now is true, still plan the

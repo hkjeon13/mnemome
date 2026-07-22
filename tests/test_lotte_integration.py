@@ -42,6 +42,54 @@ async def test_lotte_memory_protocol_round_trip() -> None:
     assert await memory.retrieve("pref-1") is None
 
 
+@pytest.mark.asyncio
+async def test_lotte_memory_groups_live_chat_turns_by_conversation_session() -> None:
+    mnemome = Mnemome.in_memory()
+    await mnemome.initialize()
+
+    first = MnemomeLongTermMemory(
+        mnemome.application,
+        "tenant-a",
+        conversation_session_id="session-a",
+        conversation_query="첫 질문",
+    )
+    await first.store(
+        MemoryEntry(
+            id="run-1",
+            kind=MemoryEntryKind.CONVERSATION,
+            content="첫 답변",
+            metadata={"run_id": "run-1"},
+        )
+    )
+    second = MnemomeLongTermMemory(
+        mnemome.application,
+        "tenant-a",
+        conversation_session_id="session-a",
+        conversation_query="후속 질문",
+    )
+    assert await second.conversation_turns() == [
+        {"role": "user", "content": "첫 질문"},
+        {"role": "assistant", "content": "첫 답변"},
+    ]
+    await second.store(
+        MemoryEntry(
+            id="run-2",
+            kind=MemoryEntryKind.CONVERSATION,
+            content="후속 답변",
+            metadata={"run_id": "run-2"},
+        )
+    )
+
+    conversations = await second.list_all(kind=MemoryEntryKind.CONVERSATION)
+    assert len(conversations) == 1
+    assert conversations[0].id == "conversation:session-a"
+    assert conversations[0].metadata["turn_count"] == 4
+    assert conversations[0].metadata["conversation_turns"][-2:] == [
+        {"role": "user", "content": "후속 질문"},
+        {"role": "assistant", "content": "후속 답변"},
+    ]
+
+
 def test_demo_prompt_layers_policy_onto_lotte_default_yaml() -> None:
     prompt_template = build_demo_prompt_template()
     overlay_text = PROMPT_OVERLAY_PATH.read_text(encoding="utf-8")
@@ -282,7 +330,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260721-streaming-markdown" in page.text
+            assert "20260722-chat-sessions-1" in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -303,7 +351,9 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "startNewConversation({ focusInput: false })" in script.text
             assert "setMemoryPanelCollapsed(true)" in script.text
             assert "else elements.chatInput.blur()" in script.text
-            assert "20260722-mobile-new-conversation" in page.text
+            assert "20260722-chat-sessions-1" in page.text
+            assert "conversation_id: state.conversationId" in script.text
+            assert "memory.conversation?.turns" in script.text
             assert 'appendMessage("assistant", "")' in script.text
             assert 'setAttribute("aria-label", "실행 계획 생성 중")' in script.text
             assert 'status === "running" ? "진행 중" : "시작 대기 중"' in script.text

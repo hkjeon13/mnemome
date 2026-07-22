@@ -1193,6 +1193,7 @@ class DemoImportStudio:
                     "import_total_sessions": len(sessions),
                     "task_text": f"[사용자 질문]\n{first_user[:10_000]}",
                     "turn_count": len(conversation),
+                    "conversation_turns": conversation[:100],
                     "transform_code_digest": code_digest,
                     "import_key": import_key,
                 },

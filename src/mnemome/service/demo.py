@@ -104,6 +104,12 @@ class DemoMemoryBody(BaseModel):
 
 class DemoChatBody(BaseModel):
     query: str = Field(min_length=1, max_length=1_000)
+    conversation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 
 class DemoRateLimiter:
@@ -272,12 +278,38 @@ def _memory_payload(fact: Any) -> dict[str, Any]:
         "is_seed": bool(fact.metadata.get("seeded")),
         "is_imported": bool(fact.metadata.get("import_job_id")),
     }
-    query = _conversation_query(fact)
+    stored_turns = fact.metadata.get("conversation_turns")
+    turns = [
+        {
+            "role": str(turn.get("role") or ""),
+            "content": str(turn.get("content") or ""),
+            **({"timestamp": str(turn.get("timestamp"))} if turn.get("timestamp") else {}),
+        }
+        for turn in stored_turns
+        if isinstance(turn, dict)
+        and str(turn.get("role") or "") in {"user", "assistant"}
+        and str(turn.get("content") or "").strip()
+    ] if isinstance(stored_turns, list) else []
+    query = next(
+        (turn["content"] for turn in turns if turn["role"] == "user"),
+        _conversation_query(fact),
+    )
     if query:
+        latest_answer = next(
+            (turn["content"] for turn in reversed(turns) if turn["role"] == "assistant"),
+            fact.statement,
+        )
         payload["conversation"] = {
             "query": query,
-            "answer": fact.statement,
-            "run_id": fact.metadata.get("run_id"),
+            "answer": latest_answer,
+            "run_id": fact.metadata.get("latest_run_id") or fact.metadata.get("run_id"),
+            "session_id": fact.metadata.get("conversation_session_id"),
+            "turns": turns or [
+                {"role": "user", "content": query},
+                {"role": "assistant", "content": fact.statement},
+            ],
+            "turn_count": len(turns) if turns else 2,
+            "is_live_session": fact.metadata.get("created_via") == "demo_chat_session",
         }
     return payload
 
@@ -369,6 +401,7 @@ async def _run_lotte_agent(
     tenant_id: str,
     query: str,
     run_id: str,
+    conversation_id: str,
     cultural_artifacts: tuple[Any, ...] = (),
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
@@ -398,7 +431,14 @@ async def _run_lotte_agent(
         base_url=base_url,
     )
 
-    memory = MnemomeLongTermMemory(application, tenant_id, max_entries=50)
+    memory = MnemomeLongTermMemory(
+        application,
+        tenant_id,
+        max_entries=50,
+        conversation_session_id=conversation_id,
+        conversation_query=query,
+    )
+    conversation_turns = await memory.conversation_turns()
     captured_preference = False
     preferences = await memory.list_all(kind=MemoryEntryKind.PREFERENCE, limit=10)
 
@@ -490,6 +530,11 @@ async def _run_lotte_agent(
         "current_user_request": query,
         "mnemome": {
             "cultural_principles": cultural_context,
+            "current_conversation": {
+                "session_id": conversation_id,
+                "turn_count": len(conversation_turns),
+                "history": conversation_turns[-20:],
+            },
         },
         "plan_prerequisites": {
             "mnemome": {
@@ -676,6 +721,7 @@ async def _execute_demo_chat(
     application: Any,
     tenant_id: str,
     query: str,
+    conversation_id: str | None = None,
     *,
     stream_delta: Callable[[str], Awaitable[None]] | None = None,
     stream_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -695,6 +741,7 @@ async def _execute_demo_chat(
             query_ref="demo-ui",
         )
     )
+    resolved_conversation_id = conversation_id or run.run_id
     try:
         (
             answer,
@@ -709,6 +756,7 @@ async def _execute_demo_chat(
             tenant_id,
             query,
             run.run_id,
+            resolved_conversation_id,
             context.cultural_artifacts,
             stream_delta=stream_delta,
             stream_progress=stream_progress,
@@ -733,6 +781,8 @@ async def _execute_demo_chat(
     return {
         "answer": answer,
         "run_id": completed.run_id,
+        "conversation_id": resolved_conversation_id,
+        "conversation_memory_id": f"conversation:{resolved_conversation_id}",
         "runtime": "AsyncToolCallingAgent",
         "model": model_name,
         "elapsed_ms": elapsed_ms,
@@ -1035,7 +1085,12 @@ def build_demo_router() -> APIRouter:
         await chat_limiter.check(session_id)
         await global_chat_limiter.check("global")
         application = request.app.state.application
-        return await _execute_demo_chat(application, tenant_id, body.query)
+        return await _execute_demo_chat(
+            application,
+            tenant_id,
+            body.query,
+            conversation_id=body.conversation_id,
+        )
 
     @router.post("/demo/api/chat/stream")
     async def chat_stream(body: DemoChatBody, request: Request) -> StreamingResponse:
@@ -1055,6 +1110,7 @@ def build_demo_router() -> APIRouter:
                     request.app.state.application,
                     tenant_id,
                     body.query,
+                    conversation_id=body.conversation_id,
                     stream_delta=emit_delta,
                     stream_progress=emit_progress,
                 )

@@ -334,6 +334,18 @@ async def test_import_studio_previews_and_persists_conversation_memories(
             assert len(imported) == 1
             assert imported[0]["kind"] == "conversation"
             assert imported[0]["conversation"]["query"] == "한국어로 답해 줘"
+            assert imported[0]["conversation"]["turns"] == [
+                {
+                    "role": "user",
+                    "content": "한국어로 답해 줘",
+                    "timestamp": "2026-07-22T09:00:00Z",
+                },
+                {
+                    "role": "assistant",
+                    "content": "네, 한국어로 답하겠습니다.",
+                    "timestamp": "2026-07-22T09:00:01Z",
+                },
+            ]
             derived = [
                 item
                 for item in memories.json()["items"]

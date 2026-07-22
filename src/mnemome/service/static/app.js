@@ -1,3 +1,25 @@
+const conversationStorageKey = "mnemome_active_conversation_id";
+
+function createConversationId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function readActiveConversationId() {
+  try {
+    const stored = window.sessionStorage.getItem(conversationStorageKey);
+    return stored || createConversationId();
+  } catch {
+    return createConversationId();
+  }
+}
+
+function setActiveConversationId(conversationId) {
+  state.conversationId = conversationId || createConversationId();
+  try { window.sessionStorage.setItem(conversationStorageKey, state.conversationId); }
+  catch { /* Session storage can be unavailable in privacy modes. */ }
+}
+
 const state = {
   memories: [],
   kind: "",
@@ -19,6 +41,7 @@ const state = {
   importJobs: [],
   importJobPollTimer: null,
   importJobsInitialized: false,
+  conversationId: readActiveConversationId(),
 };
 
 const elements = {
@@ -100,7 +123,7 @@ const kindLabels = {
   fact: "FACT · 사실",
   preference: "PREFERENCE · 선호",
   episode: "EPISODE · 경험",
-  conversation: "CONVERSATION · 대화",
+  conversation: "CONVERSATION · 세션",
 };
 
 async function api(path, options = {}) {
@@ -169,7 +192,8 @@ function renderMemories() {
   const search = state.query.trim().toLowerCase();
   const filtered = state.memories.filter((memory) => {
     const matchesKind = !state.kind || memory.kind === state.kind;
-    const haystack = `${memory.content} ${(memory.tags || []).join(" ")}`.toLowerCase();
+    const turnText = (memory.conversation?.turns || []).map((turn) => turn.content).join(" ");
+    const haystack = `${memory.content} ${turnText} ${(memory.tags || []).join(" ")}`.toLowerCase();
     return matchesKind && (!search || haystack.includes(search));
   });
 
@@ -193,7 +217,7 @@ function renderMemories() {
       card.tabIndex = 0;
       card.setAttribute("role", "button");
       card.setAttribute("aria-pressed", String(selected));
-      card.setAttribute("aria-label", `과거 대화 열기: ${memory.content}`);
+      card.setAttribute("aria-label", `대화 세션 열기: ${memory.conversation?.query || memory.content}`);
       card.addEventListener("click", () => openConversationMemory(memory));
       card.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -207,12 +231,18 @@ function renderMemories() {
     type.textContent = kindLabels[memory.kind] || memory.kind;
 
     const content = document.createElement("p");
-    content.textContent = memory.content;
-    content.title = memory.content;
+    const displayContent = memory.kind === "conversation"
+      ? (memory.conversation?.query || memory.content)
+      : memory.content;
+    content.textContent = displayContent;
+    content.title = displayContent;
 
     const tags = document.createElement("div");
     tags.className = "tag-row";
-    for (const tag of [...(memory.tags || []).slice(0, 3), formatDate(memory.created_at)]) {
+    const sessionTurnLabel = memory.kind === "conversation" && memory.conversation?.turn_count
+      ? `${memory.conversation.turn_count}턴`
+      : "";
+    for (const tag of [sessionTurnLabel, ...(memory.tags || []).slice(0, 3), formatDate(memory.created_at)]) {
       if (!tag) continue;
       const chip = document.createElement("span");
       chip.textContent = tag;
@@ -374,22 +404,35 @@ function clearRenderedConversation() {
   }
 }
 
-function openConversationMemory(memory) {
+function openConversationMemory(memory, { announce = true } = {}) {
   if (memory.kind !== "conversation") return;
   stopChat();
   clearRenderedConversation();
   initialGuideMessage.hidden = true;
   elements.starterPrompts.hidden = true;
-  const query = memory.conversation?.query?.trim();
-  if (query) appendMessage("user", query);
-  const answer = memory.conversation?.answer || memory.content;
-  const responseMessage = appendMessage("assistant", answer);
-  renderAnswerMarkdown(responseMessage.querySelector("p"), answer);
+  const turns = memory.conversation?.turns || [];
+  if (turns.length) {
+    for (const turn of turns) {
+      const message = appendMessage(turn.role, turn.content);
+      if (turn.role === "assistant") renderAnswerMarkdown(message.querySelector("p"), turn.content);
+    }
+  } else {
+    const query = memory.conversation?.query?.trim();
+    if (query) appendMessage("user", query);
+    const answer = memory.conversation?.answer || memory.content;
+    const responseMessage = appendMessage("assistant", answer);
+    renderAnswerMarkdown(responseMessage.querySelector("p"), answer);
+  }
+  if (memory.conversation?.is_live_session && memory.conversation?.session_id) {
+    setActiveConversationId(memory.conversation.session_id);
+  } else {
+    setActiveConversationId(createConversationId());
+  }
   state.selectedMemoryId = memory.id;
   renderMemories();
   elements.chatInput.value = "";
   elements.conversation.scrollTop = 0;
-  showToast(query ? "과거 대화를 불러왔습니다." : "저장된 Agent 답변을 불러왔습니다.");
+  if (announce) showToast("대화 세션을 불러왔습니다.");
 }
 
 function sourceLabel(urlValue) {
@@ -606,6 +649,7 @@ function startNewConversation({ focusInput = true } = {}) {
   initialGuideMessage.hidden = false;
   elements.starterPrompts.hidden = false;
   state.selectedMemoryId = null;
+  setActiveConversationId(createConversationId());
   renderMemories();
   elements.conversation.scrollTop = 0;
   elements.chatInput.value = "";
@@ -657,7 +701,10 @@ async function sendChat(query) {
       "/demo/api/chat/stream",
       {
         method: "POST",
-        body: JSON.stringify({ query: query.trim() }),
+        body: JSON.stringify({
+          query: query.trim(),
+          conversation_id: state.conversationId,
+        }),
         signal: controller.signal,
       },
       (event, payload) => {
@@ -709,6 +756,8 @@ async function sendChat(query) {
       `recall ${result.recalled.length}`,
       `${result.elapsed_ms} ms`,
     ]);
+    if (result.conversation_id) setActiveConversationId(result.conversation_id);
+    state.selectedMemoryId = result.conversation_memory_id || state.selectedMemoryId;
     renderAgentTrace(result);
     await loadMemories();
     if (result.preference_captured) showToast("대화에서 선호 지시를 감지해 장기 기억에 저장했습니다.");
@@ -1308,6 +1357,11 @@ async function initialize() {
   }
   try {
     await Promise.all([loadMemories(), loadCulturalMemory(), loadImportJobs({ announce: false })]);
+    const activeConversation = state.memories.find(
+      (memory) => memory.conversation?.is_live_session
+        && memory.conversation?.session_id === state.conversationId,
+    );
+    if (activeConversation) openConversationMemory(activeConversation, { announce: false });
     pollImportJobs();
   } catch (error) {
     showToast(error.message, "error");
