@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-import secrets
 import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
@@ -17,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..contracts import OpenRunRequest, SourceRef
 from ..retrieval import recall_backend_label
+from .demo_auth import SESSION_MAX_AGE_SECONDS, UsernameAlreadyExistsError
 from .demo_imports import (
     MAX_DEMO_MEMORIES,
     DemoImportPrepareBody,
@@ -26,9 +26,7 @@ from .demo_imports import (
 )
 from .prompting import build_demo_prompt_template
 
-DEMO_COOKIE = "mnemome_demo_session"
-DEMO_TENANT_PREFIX = "demo_"
-DEMO_SESSION_LENGTH = 32
+DEMO_COOKIE = "mnemome_login_session"
 STATIC_DIR = Path(__file__).with_name("static")
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_MCP_TOOLS = (
@@ -74,6 +72,15 @@ class DemoChatBody(BaseModel):
     )
 
 
+class DemoAuthBody(BaseModel):
+    username: str = Field(
+        min_length=3,
+        max_length=32,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$",
+    )
+    password: str = Field(min_length=8, max_length=128)
+
+
 class DemoRateLimiter:
     def __init__(self, *, max_sessions: int = 1_000, requests_per_minute: int = 30) -> None:
         self._max_sessions = max_sessions
@@ -95,19 +102,29 @@ class DemoRateLimiter:
                 self._requests.popitem(last=False)
 
 
+def _secure_cookie(request: Request) -> bool:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _set_session_cookie(request: Request, response: Response, token: str) -> None:
+    response.set_cookie(
+        DEMO_COOKIE,
+        token,
+        max_age=SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=_secure_cookie(request),
+        samesite="lax",
+    )
+
+
 def _session(request: Request, response: Response) -> tuple[str, str]:
-    session_id = request.cookies.get(DEMO_COOKIE, "")
-    if len(session_id) != DEMO_SESSION_LENGTH or not session_id.isalnum():
-        session_id = secrets.token_hex(DEMO_SESSION_LENGTH // 2)
-        response.set_cookie(
-            DEMO_COOKIE,
-            session_id,
-            max_age=60 * 60 * 24 * 7,
-            httponly=True,
-            secure=request.url.scheme == "https",
-            samesite="lax",
-        )
-    return session_id, f"{DEMO_TENANT_PREFIX}{session_id}"
+    del response
+    token = request.cookies.get(DEMO_COOKIE, "")
+    user = request.app.state.demo_auth.resolve_session(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    return user.user_id, user.tenant_id
 
 
 async def _seed_memories(application: Any, tenant_id: str) -> None:
@@ -797,8 +814,69 @@ def build_demo_router() -> APIRouter:
     limiter = DemoRateLimiter()
     chat_limiter = DemoRateLimiter(requests_per_minute=6)
     global_chat_limiter = DemoRateLimiter(max_sessions=1, requests_per_minute=30)
+    login_limiter = DemoRateLimiter(max_sessions=10_000, requests_per_minute=12)
+    registration_limiter = DemoRateLimiter(max_sessions=10_000, requests_per_minute=5)
     import_job_limiter = DemoRateLimiter(requests_per_minute=180)
     import_studio = DemoImportStudio()
+
+    @router.get("/demo/api/auth/me")
+    async def auth_me(request: Request) -> dict[str, Any]:
+        token = request.cookies.get(DEMO_COOKIE, "")
+        user = request.app.state.demo_auth.resolve_session(token)
+        if user is None:
+            raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+        return {"user": {"id": user.user_id, "username": user.username}}
+
+    @router.post("/demo/api/auth/register", status_code=201)
+    async def auth_register(
+        request: Request,
+        response: Response,
+        body: DemoAuthBody,
+    ) -> dict[str, Any]:
+        client_host = request.client.host if request.client else "unknown"
+        await registration_limiter.check(client_host)
+        try:
+            user, token = await asyncio.to_thread(
+                request.app.state.demo_auth.register,
+                body.username,
+                body.password,
+            )
+        except UsernameAlreadyExistsError as error:
+            raise HTTPException(status_code=409, detail="이미 사용 중인 아이디입니다.") from error
+        _set_session_cookie(request, response, token)
+        return {"user": {"id": user.user_id, "username": user.username}}
+
+    @router.post("/demo/api/auth/login")
+    async def auth_login(
+        request: Request,
+        response: Response,
+        body: DemoAuthBody,
+    ) -> dict[str, Any]:
+        client_host = request.client.host if request.client else "unknown"
+        await login_limiter.check(client_host)
+        result = await asyncio.to_thread(
+            request.app.state.demo_auth.authenticate,
+            body.username,
+            body.password,
+        )
+        if result is None:
+            raise HTTPException(status_code=401, detail="아이디 또는 패스워드가 올바르지 않습니다.")
+        user, token = result
+        _set_session_cookie(request, response, token)
+        return {"user": {"id": user.user_id, "username": user.username}}
+
+    @router.post("/demo/api/auth/logout", status_code=204)
+    async def auth_logout(request: Request, response: Response) -> Response:
+        token = request.cookies.get(DEMO_COOKIE, "")
+        request.app.state.demo_auth.delete_session(token)
+        response.delete_cookie(
+            DEMO_COOKIE,
+            httponly=True,
+            secure=_secure_cookie(request),
+            samesite="lax",
+        )
+        response.status_code = 204
+        return response
 
     @router.get("/")
     async def demo_root() -> RedirectResponse:

@@ -384,6 +384,11 @@ async def test_import_studio_previews_and_persists_conversation_memories(
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            registered = await client.post(
+                "/demo/api/auth/register",
+                json={"username": "import-test", "password": "test-password"},
+            )
+            assert registered.status_code == 201
             await client.get("/demo/api/memories")
             prepared = await client.post(
                 "/demo/api/imports/prepare",
@@ -503,6 +508,11 @@ async def test_import_job_pause_resume_auto_extract_and_cascade_delete(
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            registered = await client.post(
+                "/demo/api/auth/register",
+                json={"username": "pause-test", "password": "test-password"},
+            )
+            assert registered.status_code == 201
             await client.get("/demo/api/memories")
             prepared = (
                 await client.post(
@@ -553,7 +563,8 @@ async def test_import_job_pause_resume_auto_extract_and_cascade_delete(
                 item["claim"] == "배포 전 readiness를 확인한다." for item in culture["items"]
             )
 
-            tenant_id = f"demo_{client.cookies.get('mnemome_demo_session')}"
+            user_id = registered.json()["user"]["id"]
+            tenant_id = f"demo_user_{user_id}"
             recovered_studio = DemoImportStudio()
             recovered_jobs = await recovered_studio.list_jobs(tenant_id, app.state.application)
             assert recovered_jobs["items"][0]["status"] == "COMPLETED"

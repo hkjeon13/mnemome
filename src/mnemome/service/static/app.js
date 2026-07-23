@@ -1,13 +1,15 @@
-const conversationStorageKey = "mnemome_active_conversation_id";
-
 function createConversationId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function readActiveConversationId() {
+function conversationStorageKey(userId) {
+  return `mnemome_active_conversation_id:${userId}`;
+}
+
+function readActiveConversationId(userId) {
   try {
-    const stored = window.sessionStorage.getItem(conversationStorageKey);
+    const stored = window.sessionStorage.getItem(conversationStorageKey(userId));
     return stored || createConversationId();
   } catch {
     return createConversationId();
@@ -16,11 +18,18 @@ function readActiveConversationId() {
 
 function setActiveConversationId(conversationId) {
   state.conversationId = conversationId || createConversationId();
-  try { window.sessionStorage.setItem(conversationStorageKey, state.conversationId); }
+  if (!state.currentUser) return;
+  try {
+    window.sessionStorage.setItem(
+      conversationStorageKey(state.currentUser.id),
+      state.conversationId,
+    );
+  }
   catch { /* Session storage can be unavailable in privacy modes. */ }
 }
 
 const state = {
+  currentUser: null,
   memories: [],
   kind: "",
   query: "",
@@ -43,10 +52,20 @@ const state = {
   importJobs: [],
   importJobPollTimer: null,
   importJobsInitialized: false,
-  conversationId: readActiveConversationId(),
+  conversationId: null,
 };
 
 const elements = {
+  accountMenu: document.querySelector("#account-menu"),
+  accountUsername: document.querySelector("#account-username"),
+  accountLogout: document.querySelector("#account-logout"),
+  authDialog: document.querySelector("#auth-dialog"),
+  authForm: document.querySelector("#auth-form"),
+  authTabs: document.querySelector(".auth-tabs"),
+  authUsername: document.querySelector("#auth-username"),
+  authPassword: document.querySelector("#auth-password"),
+  authError: document.querySelector("#auth-error"),
+  authSubmit: document.querySelector("#auth-submit"),
   memoryList: document.querySelector("#memory-list"),
   memorySearch: document.querySelector("#memory-search"),
   memorySearchField: document.querySelector(".search-field"),
@@ -129,6 +148,18 @@ const kindLabels = {
   conversation: "CONVERSATION · 세션",
 };
 
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function requireAuthentication() {
+  if (!elements.authDialog.open) elements.authDialog.showModal();
+  window.requestAnimationFrame(() => elements.authUsername.focus());
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -136,7 +167,15 @@ async function api(path, options = {}) {
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || "요청을 처리하지 못했습니다.");
+  if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/demo/api/auth/")) {
+      requireAuthentication();
+    }
+    const message = typeof payload.detail === "string"
+      ? payload.detail
+      : "입력값을 확인해 주세요.";
+    throw new ApiError(message, response.status);
+  }
   return payload;
 }
 
@@ -152,7 +191,8 @@ async function streamApi(path, options, onEvent) {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.detail || "응답 스트림을 시작하지 못했습니다.");
+    if (response.status === 401) requireAuthentication();
+    throw new ApiError(payload.detail || "응답 스트림을 시작하지 못했습니다.", response.status);
   }
   if (!response.body) throw new Error("이 브라우저에서 응답 스트림을 읽을 수 없습니다.");
 
@@ -1513,11 +1553,74 @@ elements.starterPrompts.addEventListener("click", (event) => {
   if (button) sendChat(button.textContent);
 });
 
+let authMode = "login";
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  for (const tab of elements.authTabs.querySelectorAll("button[data-auth-mode]")) {
+    const active = tab.dataset.authMode === authMode;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  }
+  elements.authSubmit.textContent = authMode === "register" ? "계정 만들기" : "로그인";
+  elements.authPassword.autocomplete = authMode === "register" ? "new-password" : "current-password";
+  elements.authError.hidden = true;
+}
+
+function applyAuthenticatedUser(user) {
+  state.currentUser = user;
+  state.conversationId = readActiveConversationId(user.id);
+  elements.accountUsername.textContent = `@${user.username}`;
+  elements.accountMenu.hidden = false;
+}
+
+elements.authTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-auth-mode]");
+  if (button) setAuthMode(button.dataset.authMode);
+});
+
+elements.authDialog.addEventListener("cancel", (event) => event.preventDefault());
+
+elements.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.authError.hidden = true;
+  elements.authSubmit.disabled = true;
+  try {
+    await api(`/demo/api/auth/${authMode}`, {
+      method: "POST",
+      body: JSON.stringify({
+        username: elements.authUsername.value,
+        password: elements.authPassword.value,
+      }),
+    });
+    window.location.reload();
+  } catch (error) {
+    elements.authError.textContent = error.message;
+    elements.authError.hidden = false;
+    elements.authPassword.select();
+  } finally {
+    elements.authSubmit.disabled = false;
+  }
+});
+
+elements.accountLogout.addEventListener("click", async () => {
+  elements.accountLogout.disabled = true;
+  try {
+    await api("/demo/api/auth/logout", { method: "POST" });
+    window.location.reload();
+  } catch (error) {
+    elements.accountLogout.disabled = false;
+    showToast(error.message, "error");
+  }
+});
+
 async function initialize() {
   if (compactLayoutQuery.matches) {
     setMemoryPanelCollapsed(true);
   }
   try {
+    const auth = await api("/demo/api/auth/me");
+    applyAuthenticatedUser(auth.user);
     await Promise.all([loadMemories(), loadCulturalMemory(), loadImportJobs({ announce: false })]);
     const activeConversation = state.memories.find(
       (memory) => memory.conversation?.is_live_session
@@ -1526,6 +1629,10 @@ async function initialize() {
     if (activeConversation) openConversationMemory(activeConversation, { announce: false });
     pollImportJobs();
   } catch (error) {
+    if (error.status === 401) {
+      requireAuthentication();
+      return;
+    }
     showToast(error.message, "error");
   }
 }

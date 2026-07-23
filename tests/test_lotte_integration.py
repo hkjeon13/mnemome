@@ -240,10 +240,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             seen_messages.append(message_text)
             if "Now, there is the actual planning task:" in message_text:
                 if "앞으로 뉴스 나타낼때는 표로 나타내줘" in message_text:
-                    text = (
-                        '("[remember_preference] 조건 뉴스를 표시할 때 동작 표 형식으로 '
-                        '표시하도록 저장하기", '
-                        '"[final_answer] 알겠다고 답하고 앞으로 뉴스를 표 형식으로 제공하겠다고 안내하기")'
+                        text = (
+                            '("[remember_preference] 조건 뉴스를 표시할 때 동작 표 형식으로 '
+                            '표시하도록 저장하기", '
+                            '"[final_answer] 알겠다고 답하고 앞으로 뉴스를 표 형식으로 '
+                            '제공하겠다고 안내하기")'
                     )
                 elif "뉴스 기사 나타낼 때는 항목 형식으로 나타내줘" in message_text:
                     text = (
@@ -407,7 +408,9 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "읽기 전용" in page.text
             assert 'id="trace-section"' in page.text
             assert 'aria-label="Agent 실행 및 메모리 추적" hidden' in page.text
-            assert "20260723-hf-row-limit-1" in page.text
+            assert "20260723-account-login-1" in page.text
+            assert 'id="auth-dialog"' in page.text
+            assert 'id="account-logout"' in page.text
             assert "LOTTE AGENT TRACE" in page.text
             assert "메모리 적용 지점" in page.text
             assert "lucide-refresh-cw" in page.text
@@ -428,7 +431,7 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "startNewConversation({ focusInput: false })" in script.text
             assert "setMemoryPanelCollapsed(true)" in script.text
             assert "else elements.chatInput.blur()" in script.text
-            assert "20260723-hf-row-limit-1" in page.text
+            assert "20260723-account-login-1" in page.text
             assert "conversation_id: state.conversationId" in script.text
             assert "memory.conversation?.turns" in script.text
             assert 'appendMessage("assistant", "")' in script.text
@@ -449,8 +452,14 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "100dvh" in stylesheet.text
             assert "grid-template-columns: minmax(25rem, 0.9fr)" in stylesheet.text
             assert "justify-content: space-between; gap: 0.75rem" in stylesheet.text
-            assert ".memory-panel.culture-active .clear-button { display: none; }" in stylesheet.text
-            assert ".memory-panel:not(.is-collapsed) .panel-heading h2 { white-space: nowrap; }" in stylesheet.text
+            assert (
+                ".memory-panel.culture-active .clear-button { display: none; }"
+                in stylesheet.text
+            )
+            assert (
+                ".memory-panel:not(.is-collapsed) .panel-heading h2 { white-space: nowrap; }"
+                in stylesheet.text
+            )
             assert ".markdown-table-wrap table" in stylesheet.text
             assert ".memory-panel:not(.is-collapsed) .panel-heading" in stylesheet.text
 
@@ -459,6 +468,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
             assert "API Documents" in documents.text
             assert "준비 중" in documents.text
 
+            registered = await client.post(
+                "/demo/api/auth/register",
+                json={"username": "primary-user", "password": "test-password"},
+            )
+            assert registered.status_code == 201
             status = await client.get("/demo/api/status")
             assert status.status_code == 200
             assert status.json()["runtime"] == "lotte-agent 0.0.11"
@@ -734,6 +748,11 @@ async def test_demo_page_runs_lotte_agent_with_mnemome_memory(monkeypatch) -> No
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="https://another.test"
         ) as isolated_client:
+            registered = await isolated_client.post(
+                "/demo/api/auth/register",
+                json={"username": "isolated-user", "password": "test-password"},
+            )
+            assert registered.status_code == 201
             isolated_status = await isolated_client.get("/demo/api/status")
             isolated_memories = await isolated_client.get("/demo/api/memories")
             assert isolated_status.json()["memory_count"] == 3

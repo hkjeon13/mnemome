@@ -16,6 +16,7 @@ from ..contracts import FactInput, OpenRunRequest, SourceRef
 from ..errors import AuthenticationError, AuthorizationError, MnemomeError
 from ..ports import Stores
 from .demo import STATIC_DIR, build_demo_router
+from .demo_auth import DemoAuthStore
 from .schemas import (
     AgentEventBody,
     CheckpointBody,
@@ -41,17 +42,21 @@ def _response(value: Any, *, status_code: int = 200) -> JSONResponse:
 def create_app(settings: Settings | None = None, *, stores: Stores | None = None) -> FastAPI:
     configuration = settings or Settings.from_environment()
     application = MnemomeApplication(stores or SqliteStores(configuration.database_path))
+    demo_auth = DemoAuthStore(configuration.database_path)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=configuration.log_level)
         await application.initialize()
+        demo_auth.initialize()
         app.state.application = application
+        app.state.demo_auth = demo_auth
         app.state.settings = configuration
         logger.info("Mnemome API started in %s mode", configuration.environment)
         try:
             yield
         finally:
+            demo_auth.close()
             await application.close()
 
     app = FastAPI(

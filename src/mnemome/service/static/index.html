@@ -9,7 +9,7 @@
     />
     <title>Mnemome · Agent Memory Lab</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css?v=20260723-hf-row-limit-1" />
+    <link rel="stylesheet" href="/static/app.css?v=20260723-account-login-1" />
   </head>
   <body class="playground-body">
     <header class="site-header">
@@ -32,6 +32,10 @@
         <a class="active" href="/playground" aria-current="page">Playground</a>
         <a href="/documents">API Documents</a>
       </nav>
+      <div class="account-menu" id="account-menu" hidden>
+        <span class="account-username" id="account-username"></span>
+        <button class="account-logout" id="account-logout" type="button">로그아웃</button>
+      </div>
     </header>
 
     <main>
@@ -206,6 +210,31 @@
       </section>
     </main>
 
+    <dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-title">
+      <form class="auth-card" id="auth-form">
+        <div class="auth-brand" aria-hidden="true">M</div>
+        <span class="panel-kicker">MNEMOME ACCOUNT</span>
+        <h1 id="auth-title">내 메모리에 로그인</h1>
+        <p class="auth-description">같은 아이디로 로그인하면 어떤 디바이스에서도 동일한 메모리를 사용합니다.</p>
+        <div class="auth-tabs" role="tablist" aria-label="계정 작업">
+          <button class="active" data-auth-mode="login" type="button" role="tab" aria-selected="true">로그인</button>
+          <button data-auth-mode="register" type="button" role="tab" aria-selected="false">새 계정</button>
+        </div>
+        <label>
+          <span>아이디</span>
+          <input id="auth-username" name="username" type="text" minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,31}" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+          <small>영문, 숫자, 마침표, 밑줄, 하이픈 · 3~32자</small>
+        </label>
+        <label>
+          <span>패스워드</span>
+          <input id="auth-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" required />
+          <small>8자 이상 입력해 주세요.</small>
+        </label>
+        <p class="auth-error" id="auth-error" role="alert" hidden></p>
+        <button class="auth-submit" id="auth-submit" type="submit">로그인</button>
+      </form>
+    </dialog>
+
     <dialog class="import-dialog" id="import-dialog">
       <div class="import-shell">
         <header class="import-header">
@@ -363,7 +392,7 @@
           <button class="icon-button" value="cancel" type="submit" aria-label="닫기">×</button>
         </div>
         <p class="dialog-copy">
-          현재 브라우저 세션에서 추가된 사용자 기억 <strong id="clearable-memory-total">0개</strong>가 삭제됩니다.
+          현재 계정에서 추가된 사용자 기억 <strong id="clearable-memory-total">0개</strong>가 삭제됩니다.
           기본 샘플과 가져오기 작업의 메모리는 유지됩니다. 가져온 데이터는 Processing 작업의 … 메뉴에서 삭제할 수 있습니다.
         </p>
         <div class="dialog-actions">
@@ -374,6 +403,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js?v=20260723-hf-row-limit-1" defer></script>
+    <script src="/static/app.js?v=20260723-account-login-1" defer></script>
   </body>
 </html>
