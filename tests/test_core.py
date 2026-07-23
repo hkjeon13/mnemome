@@ -4,6 +4,7 @@ import pytest
 
 from mnemome import FactInput, Mnemome, OpenRunRequest, RunStatus, SourceRef
 from mnemome.errors import ConflictError, NotFoundError
+from mnemome.retrieval import MecabNltkTokenizer
 
 
 @pytest.mark.asyncio
@@ -144,3 +145,20 @@ async def test_bm25_recall_normalizes_korean_particles() -> None:
     assert recalled
     assert recalled[0].fact_id == article.fact_id
     assert recalled[0].score > 0
+
+
+def test_tokenizer_falls_back_when_mecab_dictionary_is_missing(monkeypatch) -> None:
+    import konlpy.tag
+    import pecab
+
+    class MissingDictionaryMecab:
+        def __init__(self) -> None:
+            raise Exception("dictionary is missing")
+
+    class FallbackPecab:
+        pass
+
+    monkeypatch.setattr(konlpy.tag, "Mecab", MissingDictionaryMecab)
+    monkeypatch.setattr(pecab, "PeCab", FallbackPecab)
+
+    assert isinstance(MecabNltkTokenizer._build_mecab(), FallbackPecab)
