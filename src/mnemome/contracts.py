@@ -54,6 +54,9 @@ class RecalledFact:
     confidence: float
     sources: tuple[SourceRef, ...]
     score: float
+    kind: str = "fact"
+    tags: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

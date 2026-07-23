@@ -70,6 +70,33 @@ keys are API keys and whose values contain `tenant_id`, `principal_id`, and
 Interactive API documentation is available at `/docs`. All product endpoints
 are under `/v1`; health probes are `/health` and `/ready`.
 
+### Production PostgreSQL and Valkey profile
+
+The production service can use the Search Agent PostgreSQL cluster without
+adding memory behavior to Search Agent. Provision the isolated `mnemome`
+database first, then start Mnemome with both Compose files:
+
+```bash
+docker compose -f compose.yaml -f compose.production.yaml up -d --build
+```
+
+Required production values are:
+
+- `MNEMOME_DATABASE_URL`: the `mnemome_app` DSN for the dedicated `mnemome`
+  database
+- `MNEMOME_API_KEYS`: an AI Assistant service principal with
+  `tenant:delegate`, `memory:read`, and optionally `memory:write`
+- `MNEMOME_TENANT_DELEGATION_SECRET`: shared HMAC secret used only for
+  delegated tenant headers
+
+The default production Valkey URL is
+`redis://ai-assistant-valkey:8000/0`. It caches tenant fact lists under the
+`mnemome:v1` namespace. PostgreSQL remains the source of truth; cache
+connection, read, write, and invalidation failures fall back to PostgreSQL.
+
+The service joins `ai-assistant-network` for API and Valkey traffic and
+`agent-data-network` for PostgreSQL traffic. Both networks must already exist.
+
 ### Cultural memory
 
 Cultural memory is a versioned governance layer, separate from user facts and

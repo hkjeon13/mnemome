@@ -406,6 +406,9 @@ class MnemomeApplication:
                     confidence=fact.confidence,
                     sources=fact.sources,
                     score=score,
+                    kind=fact.kind,
+                    tags=fact.tags,
+                    metadata=fact.metadata,
                 )
             )
         ranked.sort(key=lambda item: (item.score, item.confidence), reverse=True)

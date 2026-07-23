@@ -54,6 +54,7 @@ class FactInputBody(BaseModel):
 
 
 class CreateFactBody(FactInputBody):
+    fact_id: str | None = Field(default=None, min_length=1, max_length=200)
     kind: str = Field(default="fact", pattern="^(fact|preference|episode|conversation)$")
     tags: list[str] = Field(default_factory=list, max_length=30)
     metadata: dict[str, Any] = Field(default_factory=dict)

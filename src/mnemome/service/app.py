@@ -1,8 +1,9 @@
 import hmac
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -10,7 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..adapters import SqliteStores
+from ..adapters import PostgresStores, SqliteStores, ValkeyCachedStores
 from ..application import MnemomeApplication
 from ..contracts import FactInput, OpenRunRequest, SourceRef
 from ..errors import AuthenticationError, AuthorizationError, MnemomeError
@@ -39,9 +40,30 @@ def _response(value: Any, *, status_code: int = 200) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=jsonable_encoder(value))
 
 
+def _build_stores(configuration: Settings) -> Stores:
+    if configuration.storage_backend == "postgres":
+        assert configuration.database_url is not None
+        stores: Stores = PostgresStores(
+            configuration.database_url,
+            min_pool_size=configuration.db_pool_min_size,
+            max_pool_size=configuration.db_pool_max_size,
+            command_timeout=configuration.db_command_timeout_s,
+        )
+    else:
+        stores = SqliteStores(configuration.database_path)
+    if configuration.valkey_url:
+        return ValkeyCachedStores(
+            stores,
+            configuration.valkey_url,
+            prefix=configuration.valkey_prefix,
+            ttl_s=configuration.recall_cache_ttl_s,
+        )
+    return stores
+
+
 def create_app(settings: Settings | None = None, *, stores: Stores | None = None) -> FastAPI:
     configuration = settings or Settings.from_environment()
-    application = MnemomeApplication(stores or SqliteStores(configuration.database_path))
+    application = MnemomeApplication(stores or _build_stores(configuration))
     demo_auth = DemoAuthStore(configuration.database_path)
 
     @asynccontextmanager
@@ -84,13 +106,53 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
             },
         )
 
-    async def principal(authorization: Annotated[str | None, Header()] = None) -> ApiPrincipal:
+    async def principal(
+        authorization: Annotated[str | None, Header()] = None,
+        delegated_tenant: Annotated[
+            str | None, Header(alias="X-Mnemome-Tenant")
+        ] = None,
+        delegated_timestamp: Annotated[
+            str | None, Header(alias="X-Mnemome-Timestamp")
+        ] = None,
+        delegated_signature: Annotated[
+            str | None, Header(alias="X-Mnemome-Signature")
+        ] = None,
+    ) -> ApiPrincipal:
         if not authorization or not authorization.startswith("Bearer "):
             raise AuthenticationError("A bearer API key is required")
         candidate = authorization.removeprefix("Bearer ")
         for key, identity in configuration.api_keys.items():
             if hmac.compare_digest(candidate, key):
-                return identity
+                if not delegated_tenant:
+                    return identity
+                if not identity.can("tenant:delegate"):
+                    raise AuthorizationError(
+                        "The principal cannot delegate a tenant scope"
+                    )
+                secret = configuration.tenant_delegation_secret
+                if not secret or not delegated_timestamp or not delegated_signature:
+                    raise AuthenticationError(
+                        "Tenant delegation headers are incomplete"
+                    )
+                try:
+                    timestamp = int(delegated_timestamp)
+                except ValueError as error:
+                    raise AuthenticationError(
+                        "Tenant delegation timestamp is invalid"
+                    ) from error
+                if abs(int(time.time()) - timestamp) > configuration.tenant_delegation_max_skew_s:
+                    raise AuthenticationError(
+                        "Tenant delegation timestamp is outside the allowed window"
+                    )
+                if not delegated_tenant.startswith("usr_") or len(delegated_tenant) > 80:
+                    raise AuthenticationError("Delegated tenant is invalid")
+                payload = f"{delegated_tenant}\n{delegated_timestamp}".encode()
+                expected = hmac.new(secret.encode(), payload, "sha256").hexdigest()
+                if not hmac.compare_digest(delegated_signature, expected):
+                    raise AuthenticationError(
+                        "Tenant delegation signature is invalid"
+                    )
+                return replace(identity, tenant_id=delegated_tenant)
         raise AuthenticationError("The bearer API key is invalid")
 
     def require(role: str):
@@ -114,7 +176,7 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
 
     @app.get("/ready", tags=["operations"])
     async def ready() -> dict[str, str]:
-        return {"status": "ready", "storage": "sqlite"}
+        return {"status": "ready", "storage": configuration.storage_backend}
 
     @app.post("/v1/agents", status_code=201, tags=["agents"])
     async def register_agent(body: RegisterAgentBody, identity: AgentPrincipal) -> JSONResponse:
@@ -267,6 +329,7 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
             kind=body.kind,
             tags=tuple(body.tags),
             metadata=body.metadata,
+            fact_id=body.fact_id,
         )
         return _response(fact, status_code=201)
 

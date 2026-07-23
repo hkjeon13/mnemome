@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+
 import httpx
 import pytest
 
@@ -171,3 +174,62 @@ async def test_service_end_to_end_and_tenant_isolation(settings: Settings) -> No
                 params={"scope": "default"},
             )
             assert isolated.json() == {"snapshot": None, "artifacts": []}
+
+
+@pytest.mark.asyncio
+async def test_service_allows_signed_tenant_delegation() -> None:
+    secret = "test-delegation-secret"
+    roles = frozenset({"tenant:delegate", "memory:read", "memory:write"})
+    settings = Settings(
+        environment="test",
+        database_path=":memory:",
+        api_keys={
+            "service-key": ApiPrincipal("service", "ai-assistant", roles),
+        },
+        log_level="WARNING",
+        tenant_delegation_secret=secret,
+        tenant_delegation_max_skew_s=60,
+    )
+    app = create_app(settings, stores=InMemoryStores())
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            tenant_id = "usr_123456"
+            timestamp = "0"
+            signature = hmac.new(
+                secret.encode(),
+                f"{tenant_id}\n{timestamp}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            stale = await client.get(
+                "/v1/memories:recall",
+                headers={
+                    "Authorization": "Bearer service-key",
+                    "X-Mnemome-Tenant": tenant_id,
+                    "X-Mnemome-Timestamp": timestamp,
+                    "X-Mnemome-Signature": signature,
+                },
+            )
+            assert stale.status_code == 401
+
+            import time
+
+            timestamp = str(int(time.time()))
+            signature = hmac.new(
+                secret.encode(),
+                f"{tenant_id}\n{timestamp}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            headers = {
+                "Authorization": "Bearer service-key",
+                "X-Mnemome-Tenant": tenant_id,
+                "X-Mnemome-Timestamp": timestamp,
+                "X-Mnemome-Signature": signature,
+            }
+            created = await client.post(
+                "/v1/memory-facts",
+                headers=headers,
+                json={"statement": "Delegated memory"},
+            )
+            assert created.status_code == 201
+            assert created.json()["tenant_id"] == tenant_id

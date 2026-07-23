@@ -1,0 +1,20 @@
+services:
+  api:
+    environment:
+      MNEMOME_ENV: production
+      MNEMOME_STORAGE_BACKEND: postgres
+      MNEMOME_DATABASE_URL: ${MNEMOME_DATABASE_URL:?MNEMOME_DATABASE_URL must be configured}
+      MNEMOME_VALKEY_URL: ${MNEMOME_VALKEY_URL:-redis://ai-assistant-valkey:8000/0}
+      MNEMOME_TENANT_DELEGATION_SECRET: ${MNEMOME_TENANT_DELEGATION_SECRET:?MNEMOME_TENANT_DELEGATION_SECRET must be configured}
+    networks:
+      - default
+      - ai-assistant-network
+      - agent-data-network
+
+networks:
+  ai-assistant-network:
+    external: true
+    name: ai-assistant-network
+  agent-data-network:
+    external: true
+    name: agent-data-network

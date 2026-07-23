@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .adapters import InMemoryStores, SqliteStores
+from .adapters import InMemoryStores, PostgresStores, SqliteStores
 from .application import MnemomeApplication
 from .contracts import (
     AgentDescriptor,
@@ -165,6 +165,24 @@ class Mnemome:
     @classmethod
     def sqlite(cls, path: str) -> Mnemome:
         return cls(SqliteStores(path))
+
+    @classmethod
+    def postgres(
+        cls,
+        database_url: str,
+        *,
+        min_pool_size: int = 1,
+        max_pool_size: int = 10,
+        command_timeout: float = 5.0,
+    ) -> Mnemome:
+        return cls(
+            PostgresStores(
+                database_url,
+                min_pool_size=min_pool_size,
+                max_pool_size=max_pool_size,
+                command_timeout=command_timeout,
+            )
+        )
 
     async def __aenter__(self) -> Mnemome:
         await self.initialize()
