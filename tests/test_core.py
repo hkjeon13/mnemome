@@ -147,18 +147,14 @@ async def test_bm25_recall_normalizes_korean_particles() -> None:
     assert recalled[0].score > 0
 
 
-def test_tokenizer_falls_back_when_mecab_dictionary_is_missing(monkeypatch) -> None:
+def test_tokenizer_requires_mecab_dictionary(monkeypatch) -> None:
     import konlpy.tag
-    import pecab
 
     class MissingDictionaryMecab:
         def __init__(self) -> None:
             raise Exception("dictionary is missing")
 
-    class FallbackPecab:
-        pass
-
     monkeypatch.setattr(konlpy.tag, "Mecab", MissingDictionaryMecab)
-    monkeypatch.setattr(pecab, "PeCab", FallbackPecab)
 
-    assert isinstance(MecabNltkTokenizer._build_mecab(), FallbackPecab)
+    with pytest.raises(Exception, match="dictionary is missing"):
+        MecabNltkTokenizer._build_mecab()

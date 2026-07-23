@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import math
 import re
 from collections import Counter
@@ -9,7 +8,6 @@ from functools import lru_cache
 
 _EN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*")
 _FALLBACK_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*|[가-힣]+|\d+")
-logger = logging.getLogger("mnemome.retrieval")
 
 
 class MecabNltkTokenizer:
@@ -21,25 +19,9 @@ class MecabNltkTokenizer:
 
     @staticmethod
     def _build_mecab():
-        try:
-            from konlpy.tag import Mecab
+        from konlpy.tag import Mecab
 
-            return Mecab()
-        except Exception as error:
-            logger.warning(
-                "MeCab tokenizer unavailable; falling back to PeCab error_type=%s",
-                type(error).__name__,
-            )
-            try:
-                from pecab import PeCab
-
-                return PeCab()
-            except Exception as fallback_error:
-                logger.warning(
-                    "PeCab tokenizer unavailable; falling back to regex error_type=%s",
-                    type(fallback_error).__name__,
-                )
-                return None
+        return Mecab()
 
     @staticmethod
     def _build_nltk():

@@ -15,7 +15,6 @@ dependencies = [
   "konlpy>=0.6,<1",
   "mecab-python3>=1.0.10,<2",
   "nltk>=3.9,<4",
-  "pecab>=1.0,<2",
 ]
 
 [project.optional-dependencies]
