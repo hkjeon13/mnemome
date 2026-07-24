@@ -83,9 +83,35 @@ class MnemomeClient:
         response.raise_for_status()
         return response.json()
 
-    async def recall(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
+    async def recall(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        mode: str = "semantic",
+        kind: str | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        order: str | None = None,
+        exclude_tags: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "query": query,
+            "limit": limit,
+            "mode": mode,
+        }
+        if kind:
+            params["kind"] = kind
+        if created_after:
+            params["created_after"] = created_after
+        if created_before:
+            params["created_before"] = created_before
+        if order:
+            params["order"] = order
+        if exclude_tags:
+            params["exclude_tags"] = list(exclude_tags)
         response = await self._client.get(
-            "/v1/memories:recall", params={"query": query, "limit": limit}
+            "/v1/memories:recall", params=params
         )
         response.raise_for_status()
         return response.json()["items"]

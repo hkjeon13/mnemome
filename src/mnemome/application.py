@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 
 from .contracts import (
@@ -381,15 +382,63 @@ class MnemomeApplication:
         return suppressed
 
     async def recall(
-        self, tenant_id: str, query: str, *, limit: int = 10
+        self,
+        tenant_id: str,
+        query: str,
+        *,
+        limit: int = 10,
+        mode: str = "semantic",
+        kind: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        order: str | None = None,
+        exclude_tags: tuple[str, ...] = (),
     ) -> tuple[RecalledFact, ...]:
         if limit < 1 or limit > 100:
             raise ValidationError("Recall limit must be between 1 and 100")
+        if mode not in {"semantic", "recent", "temporal", "hybrid"}:
+            raise ValidationError("Unsupported recall mode")
+        resolved_order = order or (
+            "created_at_desc" if mode in {"recent", "temporal"} else "relevance"
+        )
+        if resolved_order not in {"relevance", "created_at_desc", "created_at_asc"}:
+            raise ValidationError("Unsupported recall order")
+        excluded = set(exclude_tags)
         active_facts = [
             fact
             for fact in await self.stores.list_facts(tenant_id)
             if fact.status == FactStatus.ACTIVE
+            and (kind is None or fact.kind == kind)
+            and (created_after is None or fact.created_at >= created_after)
+            and (created_before is None or fact.created_at < created_before)
+            and not excluded.intersection(fact.tags)
         ]
+
+        if mode in {"recent", "temporal"}:
+            reverse = resolved_order != "created_at_asc"
+            ordered = sorted(
+                active_facts,
+                key=lambda fact: (fact.created_at, fact.fact_id),
+                reverse=reverse,
+            )
+            return tuple(
+                RecalledFact(
+                    fact_id=fact.fact_id,
+                    statement=fact.statement,
+                    confidence=fact.confidence,
+                    sources=fact.sources,
+                    score=0.0,
+                    kind=fact.kind,
+                    tags=fact.tags,
+                    metadata=fact.metadata,
+                    created_at=fact.created_at,
+                    conversation_id=str(fact.metadata.get("conversation_id") or "") or None,
+                    rank=rank,
+                    match_reason=resolved_order,
+                )
+                for rank, fact in enumerate(ordered[:limit], start=1)
+            )
+
         scores = bm25_scores(
             query,
             [(fact.fact_id, fact.statement, fact.confidence) for fact in active_facts],
@@ -409,10 +458,40 @@ class MnemomeApplication:
                     kind=fact.kind,
                     tags=fact.tags,
                     metadata=fact.metadata,
+                    created_at=fact.created_at,
+                    conversation_id=str(fact.metadata.get("conversation_id") or "") or None,
                 )
             )
-        ranked.sort(key=lambda item: (item.score, item.confidence), reverse=True)
-        return tuple(ranked[:limit])
+        if mode == "hybrid":
+            ranked.sort(
+                key=lambda item: (
+                    item.score,
+                    item.confidence,
+                    item.created_at
+                    or datetime.min.replace(
+                        tzinfo=created_after.tzinfo if created_after else None
+                    ),
+                    item.fact_id,
+                ),
+                reverse=True,
+            )
+            match_reason = "time_filtered_relevance"
+        elif resolved_order == "created_at_desc":
+            ranked.sort(
+                key=lambda item: (item.created_at or datetime.min, item.fact_id),
+                reverse=True,
+            )
+            match_reason = resolved_order
+        elif resolved_order == "created_at_asc":
+            ranked.sort(key=lambda item: (item.created_at or datetime.min, item.fact_id))
+            match_reason = resolved_order
+        else:
+            ranked.sort(key=lambda item: (item.score, item.confidence), reverse=True)
+            match_reason = "relevance"
+        return tuple(
+            replace(item, rank=rank, match_reason=match_reason)
+            for rank, item in enumerate(ranked[:limit], start=1)
+        )
 
     async def create_cultural_artifact(
         self,

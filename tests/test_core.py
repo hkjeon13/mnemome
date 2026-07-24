@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from mnemome import FactInput, Mnemome, OpenRunRequest, RunStatus, SourceRef
@@ -114,6 +117,75 @@ async def test_memory_kind_tags_and_metadata_are_preserved() -> None:
     assert listed == (fact,)
     assert listed[0].tags == ("korean", "language")
     assert listed[0].metadata == {"priority": "high"}
+
+
+@pytest.mark.asyncio
+async def test_temporal_recall_orders_conversations_and_filters_window() -> None:
+    memory = Mnemome.in_memory()
+    await memory.initialize()
+    base = datetime(2026, 7, 24, 0, 0, tzinfo=UTC)
+    preference = await memory.application.create_fact(
+        "tenant-a",
+        "사용자 선호 조건: 뉴스 요청\n사용자 선호 동작: 영어로 답변",
+        kind="preference",
+        sources=(SourceRef("test", "preference"),),
+    )
+    older = await memory.application.create_fact(
+        "tenant-a",
+        "사용자 요청: 엔비디아 뉴스 알려줘",
+        kind="conversation",
+        metadata={"conversation_id": "conversation-1"},
+        sources=(SourceRef("test", "older"),),
+    )
+    newer = await memory.application.create_fact(
+        "tenant-a",
+        "사용자 요청: 아니 엔비디아 뉴스를 알려달라고",
+        kind="conversation",
+        metadata={"conversation_id": "conversation-2"},
+        sources=(SourceRef("test", "newer"),),
+    )
+    excluded = await memory.application.create_fact(
+        "tenant-a",
+        "사용자 요청: 내가 최근에 물어본 질문이 뭐야?",
+        kind="conversation",
+        tags=("memory-query",),
+        sources=(SourceRef("test", "excluded"),),
+    )
+    for fact, created_at in (
+        (preference, base),
+        (older, base + timedelta(hours=1)),
+        (newer, base + timedelta(hours=2)),
+        (excluded, base + timedelta(hours=3)),
+    ):
+        await memory.application.stores.save_fact(
+            replace(fact, created_at=created_at)
+        )
+
+    recalled = await memory.application.recall(
+        "tenant-a",
+        "",
+        mode="recent",
+        kind="conversation",
+        order="created_at_desc",
+        exclude_tags=("memory-query",),
+        limit=2,
+    )
+
+    assert [item.fact_id for item in recalled] == [newer.fact_id, older.fact_id]
+    assert [item.rank for item in recalled] == [1, 2]
+    assert recalled[0].created_at == base + timedelta(hours=2)
+    assert recalled[0].conversation_id == "conversation-2"
+    assert recalled[0].match_reason == "created_at_desc"
+
+    windowed = await memory.application.recall(
+        "tenant-a",
+        "",
+        mode="temporal",
+        kind="conversation",
+        created_after=base + timedelta(hours=1),
+        created_before=base + timedelta(hours=2),
+    )
+    assert [item.fact_id for item in windowed] == [older.fact_id]
 
 
 @pytest.mark.asyncio

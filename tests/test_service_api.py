@@ -134,6 +134,44 @@ async def test_service_end_to_end_and_tenant_isolation(settings: Settings) -> No
                 direct_memory.json()["fact_id"]
             ]
 
+            first_conversation = await client.post(
+                "/v1/memory-facts",
+                headers=headers_a,
+                json={
+                    "fact_id": "conversation:first",
+                    "statement": "사용자 요청: 첫 번째 질문",
+                    "kind": "conversation",
+                    "metadata": {"conversation_id": "conversation-1"},
+                },
+            )
+            second_conversation = await client.post(
+                "/v1/memory-facts",
+                headers=headers_a,
+                json={
+                    "fact_id": "conversation:second",
+                    "statement": "사용자 요청: 두 번째 질문",
+                    "kind": "conversation",
+                    "metadata": {"conversation_id": "conversation-2"},
+                },
+            )
+            assert first_conversation.status_code == 201
+            assert second_conversation.status_code == 201
+            recent = await client.get(
+                "/v1/memories:recall",
+                headers=headers_a,
+                params={
+                    "mode": "recent",
+                    "kind": "conversation",
+                    "order": "created_at_desc",
+                    "limit": 1,
+                },
+            )
+            assert recent.status_code == 200
+            assert recent.json()["items"][0]["fact_id"] == "conversation:second"
+            assert recent.json()["items"][0]["rank"] == 1
+            assert recent.json()["items"][0]["match_reason"] == "created_at_desc"
+            assert recent.json()["items"][0]["created_at"]
+
             replay = await client.get(f"/v1/runs/{run_id}/events", headers=headers_a)
             assert replay.status_code == 200
             assert "agent.event.recorded" in replay.text

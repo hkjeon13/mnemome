@@ -4,7 +4,8 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
-from typing import Annotated, Any
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -297,8 +298,26 @@ def create_app(settings: Settings | None = None, *, stores: Stores | None = None
         identity: MemoryReader,
         query: Annotated[str, Query(max_length=20_000)] = "",
         limit: Annotated[int, Query(ge=1, le=100)] = 10,
+        mode: Literal["semantic", "recent", "temporal", "hybrid"] = "semantic",
+        kind: Annotated[str | None, Query()] = None,
+        created_after: Annotated[datetime | None, Query()] = None,
+        created_before: Annotated[datetime | None, Query()] = None,
+        order: Literal["relevance", "created_at_desc", "created_at_asc"] | None = None,
+        exclude_tags: Annotated[list[str] | None, Query()] = None,
     ) -> dict[str, Any]:
-        return {"items": await application.recall(identity.tenant_id, query, limit=limit)}
+        return {
+            "items": await application.recall(
+                identity.tenant_id,
+                query,
+                limit=limit,
+                mode=mode,
+                kind=kind,
+                created_after=created_after,
+                created_before=created_before,
+                order=order,
+                exclude_tags=tuple(exclude_tags or ()),
+            )
+        }
 
     @app.get("/v1/memory-facts", tags=["memory"])
     async def list_facts(

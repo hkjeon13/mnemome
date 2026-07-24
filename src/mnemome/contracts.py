@@ -57,6 +57,10 @@ class RecalledFact:
     kind: str = "fact"
     tags: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: datetime | None = None
+    conversation_id: str | None = None
+    rank: int = 0
+    match_reason: str = "relevance"
 
 
 @dataclass(frozen=True, slots=True)
